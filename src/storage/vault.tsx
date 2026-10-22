@@ -4,6 +4,7 @@ import * as Sharing from "expo-sharing";
 import { isPasswordProtected, unzip, unzipWithPassword, zip, zipWithPassword } from "react-native-zip-archive";
 import { Folder, IncomingFile, VaultFile, VaultIndex } from "../types";
 import { extOf, guessMime, stripFileScheme, uid, uniqueName } from "../utils";
+import { SCANNER_TMP, SCAN_OUT } from "../scan/paths";
 
 const DOC = FileSystem.documentDirectory ?? "";
 const CACHE = FileSystem.cacheDirectory ?? "";
@@ -56,6 +57,8 @@ function normalizeUri(uri: string) {
 async function clearTempFiles() {
   try {
     await FileSystem.deleteAsync(SHARE_DIR, { idempotent: true });
+    await FileSystem.deleteAsync(SCAN_OUT, { idempotent: true });
+    await FileSystem.deleteAsync(SCANNER_TMP, { idempotent: true });
     await FileSystem.deleteAsync(RESTORE_ZIP, { idempotent: true });
     await FileSystem.deleteAsync(RESTORE_DIR, { idempotent: true });
     const names = await FileSystem.readDirectoryAsync(CACHE);

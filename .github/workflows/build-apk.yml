@@ -35,6 +35,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Test the PDF writer
+        run: npm test
+
       - name: Use the CI run number as versionCode (so each build installs over the last)
         run: |
           jq '.expo.android.versionCode = ${{ github.run_number }}' app.json > app.tmp.json

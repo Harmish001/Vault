@@ -1,22 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Feather from "@expo/vector-icons/Feather";
 import * as DocumentPicker from "expo-document-picker";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
-import { colors, fonts } from "../theme";
+import { colors } from "../theme";
 import { countInside, folderPath, plural, sortFiles } from "../utils";
 import { openFile } from "../openFile";
 import { FileRow, FolderRow } from "../components/Rows";
 import { useFileActions, useFolderActions } from "../components/actions";
-import { EmptyState, IconButton, PromptModal, ScreenHeader } from "../components/ui";
+import { EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
+import { useLock } from "../lock/LockProvider";
 
 export default function FolderScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "Folder">) {
   const { id } = route.params;
   const { folders, files, createFolder, addFiles, fileUri } = useVault();
   const insets = useSafeAreaInsets();
+  const { runExternal } = useLock();
   const [newFolder, setNewFolder] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileActions = useFileActions();
@@ -36,7 +37,9 @@ export default function FolderScreen({ navigation, route }: NativeStackScreenPro
 
   async function pickFiles() {
     try {
-      const res = await DocumentPicker.getDocumentAsync({ type: "*/*", multiple: true, copyToCacheDirectory: false });
+      const res = await runExternal(() =>
+        DocumentPicker.getDocumentAsync({ type: "*/*", multiple: true, copyToCacheDirectory: false })
+      );
       if (res.canceled || !res.assets?.length) return;
       setBusy(true);
       const out = await addFiles(
@@ -92,15 +95,10 @@ export default function FolderScreen({ navigation, route }: NativeStackScreenPro
         ) : null}
       </ScrollView>
 
-      <Pressable
-        onPress={pickFiles}
-        disabled={busy}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.fab, { bottom: insets.bottom + 20 }, (pressed || busy) && { opacity: 0.8 }]}
-      >
-        <Feather name={busy ? "loader" : "plus"} size={22} color={colors.primaryDark} />
-        <Text style={styles.fabText}>{busy ? "Adding…" : "Add files"}</Text>
-      </Pressable>
+      <FabBar>
+        <Pill icon="camera" label="Scan" tone="dark" disabled={busy} onPress={() => navigation.navigate("Scan", { folderId: id })} />
+        <Pill icon={busy ? "loader" : "plus"} label={busy ? "Adding…" : "Add files"} disabled={busy} onPress={pickFiles} />
+      </FabBar>
 
       <PromptModal
         visible={newFolder}
@@ -123,21 +121,4 @@ export default function FolderScreen({ navigation, route }: NativeStackScreenPro
 
 const styles = StyleSheet.create({
   accent: { height: 4, marginHorizontal: 16, borderRadius: 2 },
-  fab: {
-    position: "absolute",
-    right: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.accent,
-    paddingHorizontal: 20,
-    height: 54,
-    borderRadius: 27,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  fabText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.primaryDark },
 });

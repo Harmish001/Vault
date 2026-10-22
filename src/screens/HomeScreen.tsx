@@ -11,7 +11,7 @@ import { countInside, folderPath, plural } from "../utils";
 import { openFile } from "../openFile";
 import { FileRow, FolderRow, FolderTile } from "../components/Rows";
 import { useFileActions, useFolderActions } from "../components/actions";
-import { Button, EmptyState, IconButton, PromptModal, ScreenHeader } from "../components/ui";
+import { Button, EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
 
 export default function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
   const { folders, files, createFolder, fileUri } = useVault();
@@ -128,14 +128,10 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
       </ScrollView>
 
       {roots.length > 0 && !q ? (
-        <Pressable
-          onPress={() => setCreating(true)}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.fab, { bottom: insets.bottom + 20 }, pressed && { opacity: 0.9 }]}
-        >
-          <Feather name="folder-plus" size={20} color={colors.primaryDark} />
-          <Text style={styles.fabText}>New folder</Text>
-        </Pressable>
+        <FabBar>
+          <Pill icon="camera" label="Scan" tone="dark" onPress={() => navigation.navigate("Scan")} />
+          <Pill icon="folder-plus" label="New folder" onPress={() => setCreating(true)} />
+        </FabBar>
       ) : null}
 
       <PromptModal
@@ -184,21 +180,4 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF3D6",
   },
   warnText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: "#6B4700" },
-  fab: {
-    position: "absolute",
-    right: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.accent,
-    paddingHorizontal: 18,
-    height: 52,
-    borderRadius: 26,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  fabText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.primaryDark },
 });

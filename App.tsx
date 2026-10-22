@@ -18,6 +18,7 @@ import HomeScreen from "./src/screens/HomeScreen";
 import FolderScreen from "./src/screens/FolderScreen";
 import SaveScreen from "./src/screens/SaveScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
+import ScanScreen from "./src/screens/ScanScreen";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -58,6 +59,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="Folder" component={FolderScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="Save" component={SaveScreen} />
+        <Stack.Screen name="Scan" component={ScanScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

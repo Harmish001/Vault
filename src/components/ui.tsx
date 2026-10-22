@@ -78,6 +78,37 @@ export function Button(props: {
   );
 }
 
+export function FabBar({ children }: { children: React.ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return <View style={[styles.fabBar, { bottom: insets.bottom + 20 }]}>{children}</View>;
+}
+
+export function Pill(props: {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  label: string;
+  onPress: () => void;
+  tone?: "dark" | "accent";
+  disabled?: boolean;
+}) {
+  const dark = props.tone === "dark";
+  const fg = dark ? "#fff" : colors.primaryDark;
+  return (
+    <Pressable
+      onPress={props.onPress}
+      disabled={props.disabled}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.pill,
+        { backgroundColor: dark ? colors.primary : colors.accent },
+        (pressed || props.disabled) && { opacity: 0.8 },
+      ]}
+    >
+      <Feather name={props.icon} size={20} color={fg} />
+      <Text style={[styles.pillText, { color: fg }]}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
 export function EmptyState(props: { title: string; body: string; action?: React.ReactNode }) {
   return (
     <View style={styles.empty}>
@@ -200,6 +231,21 @@ export function PromptModal(props: {
 }
 
 export const styles = StyleSheet.create({
+  fabBar: { position: "absolute", right: 18, flexDirection: "row", gap: 10 },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 18,
+    height: 52,
+    borderRadius: 26,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  pillText: { fontFamily: fonts.semibold, fontSize: 16 },
   header: {
     flexDirection: "row",
     alignItems: "center",

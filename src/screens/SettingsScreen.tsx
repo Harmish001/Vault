@@ -10,6 +10,7 @@ import { useSettings } from "../storage/settings";
 import { colors, fonts, radius } from "../theme";
 import { formatBytes, plural } from "../utils";
 import { Button, PromptModal, ScreenHeader } from "../components/ui";
+import { useLock } from "../lock/LockProvider";
 
 const LOCK_OPTIONS = [
   { label: "1 min", sec: 60 },
@@ -21,6 +22,7 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
   const { settings, update } = useSettings();
   const { files, folders, totalBytes, exportBackup, restoreBackup } = useVault();
   const insets = useSafeAreaInsets();
+  const { runExternal } = useLock();
   const [exportPrompt, setExportPrompt] = useState(false);
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null); // picked file uri awaiting a password
   const [busy, setBusy] = useState<null | "export" | "restore">(null);
@@ -66,7 +68,7 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
           text: "Choose backup file",
           style: "destructive",
           onPress: async () => {
-            const res = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: false });
+            const res = await runExternal(() => DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: false }));
             if (!res.canceled && res.assets?.[0]) runRestore(res.assets[0].uri);
           },
         },

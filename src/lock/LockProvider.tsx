@@ -5,8 +5,13 @@ import { allowScreenCaptureAsync, preventScreenCaptureAsync } from "expo-screen-
 import { useSettings } from "../storage/settings";
 import { colors, fonts } from "../theme";
 
-type Ctx = { locked: boolean; noDeviceLock: boolean };
-const LockContext = createContext<Ctx>({ locked: true, noDeviceLock: false });
+type Ctx = {
+  locked: boolean;
+  noDeviceLock: boolean;
+  /** Wrap anything that opens another full-screen Android activity (scanner, file picker). */
+  runExternal: <T>(fn: () => Promise<T>) => Promise<T>;
+};
+const LockContext = createContext<Ctx>({ locked: true, noDeviceLock: false, runExternal: (fn) => fn() });
 export const useLock = () => useContext(LockContext);
 
 export function LockProvider({ children }: { children: React.ReactNode }) {
@@ -15,6 +20,19 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   const [noDeviceLock, setNoDeviceLock] = useState(false);
   const leftAt = useRef<number | null>(null);
   const busy = useRef(false);
+  const external = useRef(0);
+
+  const runExternal = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    external.current++;
+    try {
+      return await fn();
+    } finally {
+      // keep the guard briefly: the "active" event can arrive just after the promise settles
+      setTimeout(() => {
+        external.current--;
+      }, 1000);
+    }
+  }, []);
 
   const unlock = useCallback(async () => {
     if (busy.current) return;
@@ -55,9 +73,9 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "background") {
-        if (!busy.current) leftAt.current = Date.now();
+        if (!busy.current && external.current === 0) leftAt.current = Date.now();
       } else if (state === "active") {
-        if (busy.current) return; // returning from the system unlock screen itself
+        if (busy.current || external.current > 0) return; // returning from our own system screen
         const away = leftAt.current;
         leftAt.current = null;
         if (settings.lockEnabled && away !== null && Date.now() - away > settings.lockAfterSec * 1000) {
@@ -76,7 +94,7 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   }, [settings.blockScreenshots]);
 
   return (
-    <LockContext.Provider value={{ locked, noDeviceLock }}>
+    <LockContext.Provider value={{ locked, noDeviceLock, runExternal }}>
       {children}
       <Modal
         visible={locked}

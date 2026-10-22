@@ -3,4 +3,5 @@ export type RootStackParamList = {
   Folder: { id: string };
   Settings: undefined;
   Save: undefined;
+  Scan: { folderId?: string } | undefined;
 };
