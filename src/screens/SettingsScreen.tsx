@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import Constants from "expo-constants";
@@ -11,6 +11,16 @@ import { colors, fonts, radius } from "../theme";
 import { formatBytes, plural } from "../utils";
 import { Button, PromptModal, ScreenHeader } from "../components/ui";
 import { useLock } from "../lock/LockProvider";
+import { requestReminderPermission } from "../reminders";
+
+const OFFSET_OPTIONS = [
+  { label: "90 days", d: 90 },
+  { label: "60 days", d: 60 },
+  { label: "30 days", d: 30 },
+  { label: "7 days", d: 7 },
+  { label: "1 day", d: 1 },
+  { label: "On the day", d: 0 },
+];
 
 const LOCK_OPTIONS = [
   { label: "1 min", sec: 60 },
@@ -110,6 +120,59 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
           />
         </Section>
 
+        <Section title="Reminders">
+          <Row
+            title="Expiry reminders"
+            body="A notification at 9:00 AM before a document's expiry date."
+            right={
+              <Switch
+                value={settings.remindersEnabled}
+                trackColor={{ true: colors.primary }}
+                onValueChange={async (v) => {
+                  await update({ remindersEnabled: v });
+                  if (v && !(await requestReminderPermission())) {
+                    Alert.alert(
+                      "Notifications are off",
+                      "Turn on notifications for DocVault in Android settings to receive reminders.",
+                      [{ text: "Not now", style: "cancel" }, { text: "Open settings", onPress: () => Linking.openSettings() }]
+                    );
+                  }
+                }}
+              />
+            }
+          />
+          {settings.remindersEnabled ? (
+            <>
+              <View style={styles.block}>
+                <Text style={styles.rowTitle}>Remind me</Text>
+                <View style={styles.pills}>
+                  {OFFSET_OPTIONS.map((o) => {
+                    const on = settings.remindOffsets.includes(o.d);
+                    return (
+                      <Pressable
+                        key={o.d}
+                        accessibilityRole="button"
+                        onPress={() => {
+                          const next = on ? settings.remindOffsets.filter((x) => x !== o.d) : [...settings.remindOffsets, o.d];
+                          if (next.length) update({ remindOffsets: next.sort((a, b) => b - a) });
+                        }}
+                        style={[styles.pill, on && styles.pillOn]}
+                      >
+                        <Text style={[styles.pillText, on && { color: "#fff" }]}>{o.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              <Row
+                title="Show document names"
+                body="Turn off to show only “A document expires soon” in notifications. Android can also hide notification text on the lock screen."
+                right={<Switch value={settings.notifyNames} onValueChange={(v) => update({ notifyNames: v })} trackColor={{ true: colors.primary }} />}
+              />
+            </>
+          ) : null}
+        </Section>
+
         <Section title="Backup">
           <View style={styles.block}>
             <Text style={styles.body}>
@@ -185,7 +248,7 @@ const styles = StyleSheet.create({
   block: { padding: 16 },
   rowTitle: { fontFamily: fonts.semibold, fontSize: 16, color: colors.ink },
   body: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.muted, marginTop: 3 },
-  pills: { flexDirection: "row", gap: 8, marginTop: 10 },
+  pills: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
   pill: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, borderWidth: 1.5, borderColor: colors.line },
   pillOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   pillText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.ink },

@@ -109,3 +109,55 @@ export function countInside(folders: Folder[], files: VaultFile[], id: string) {
 }
 
 export const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+
+// ---- dates & expiry ----------------------------------------------------------------
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+export function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+export function parseISODate(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+export function addYears(d: Date, n: number): Date {
+  const out = new Date(d.getFullYear() + n, d.getMonth(), d.getDate());
+  if (out.getMonth() !== d.getMonth()) out.setDate(0); // 29 Feb -> 28 Feb
+  return out;
+}
+
+/** Whole calendar days from today to the expiry date (negative once expired). */
+export function daysUntil(iso: string, now: Date = new Date()): number {
+  const target = parseISODate(iso).getTime();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.round((target - today) / 86400000);
+}
+
+export type ExpiryTone = "ok" | "soon" | "expired";
+
+export function expiryInfo(iso: string, now: Date = new Date()): { label: string; tone: ExpiryTone; days: number } {
+  const days = daysUntil(iso, now);
+  const date = formatDate(parseISODate(iso).getTime());
+  if (days < 0) {
+    return { days, tone: "expired", label: days >= -60 ? `Expired ${plural(-days, "day")} ago` : `Expired on ${date}` };
+  }
+  if (days === 0) return { days, tone: "soon", label: "Expires today" };
+  if (days <= 60) return { days, tone: "soon", label: `Expires in ${plural(days, "day")}` };
+  return { days, tone: "ok", label: `Expires ${date}` };
+}
+
+/** Shows only the last 4 characters, e.g. •••••••• 1234 */
+export function maskValue(v: string): string {
+  const t = v.trim();
+  if (t.length <= 4) return "•".repeat(t.length);
+  return "•".repeat(Math.min(t.length - 4, 12)) + " " + t.slice(-4);
+}
+
+export function fileSearchText(f: VaultFile): string {
+  return [f.name, ...(f.tags ?? []), f.notes ?? "", ...(f.fields ?? []).flatMap((x) => [x.label, x.value])]
+    .join(" ")
+    .toLowerCase();
+}

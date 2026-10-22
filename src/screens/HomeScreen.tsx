@@ -7,9 +7,9 @@ import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
 import { colors, folderColors, fonts, radius } from "../theme";
-import { countInside, folderPath, plural } from "../utils";
+import { countInside, daysUntil, expiryInfo, fileSearchText, folderPath, plural } from "../utils";
 import { openFile } from "../openFile";
-import { FileRow, FolderRow, FolderTile } from "../components/Rows";
+import { ExpiryBadge, FileRow, FolderRow, FolderTile } from "../components/Rows";
 import { useFileActions, useFolderActions } from "../components/actions";
 import { Button, EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
 
@@ -28,7 +28,16 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
   );
   const q = query.trim().toLowerCase();
   const folderHits = q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : [];
-  const fileHits = q ? files.filter((f) => f.name.toLowerCase().includes(q)) : [];
+  const fileHits = q ? files.filter((f) => fileSearchText(f).includes(q)) : [];
+
+  // Documents that are expired or expire within 60 days, soonest first.
+  const attention = useMemo(
+    () =>
+      files
+        .filter((f) => f.expiresOn && daysUntil(f.expiresOn) <= 60)
+        .sort((a, b) => (a.expiresOn as string).localeCompare(b.expiresOn as string)),
+    [files]
+  );
 
   const detail = (id: string) => {
     const n = countInside(folders, files, id);
@@ -64,7 +73,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search folders and files"
+            placeholder="Search names, tags, notes and details"
             placeholderTextColor={colors.muted}
             style={styles.searchInput}
             returnKeyType="search"
@@ -97,7 +106,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
               />
             ))}
             {!folderHits.length && !fileHits.length ? (
-              <EmptyState title="Nothing found" body={`No folder or file has “${query.trim()}” in its name.`} />
+              <EmptyState title="Nothing found" body={`Nothing matches “${query.trim()}”. Search covers names, tags, notes and saved details.`} />
             ) : null}
           </View>
         ) : roots.length === 0 ? (
@@ -108,6 +117,30 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
           />
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 16, paddingTop: 6 }}>
+            {attention.length ? (
+              <View style={styles.attention}>
+                <Text style={styles.attentionTitle}>Needs attention</Text>
+                {attention.slice(0, 5).map((f) => {
+                  const e = expiryInfo(f.expiresOn as string);
+                  return (
+                    <Pressable
+                      key={f.id}
+                      onPress={() => navigation.navigate("FileDetails", { fileId: f.id })}
+                      style={styles.attentionRow}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${f.name}. ${e.label}`}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.attentionName} numberOfLines={1}>{f.name}</Text>
+                        <Text style={styles.attentionSub} numberOfLines={1}>{folderPath(folders, f.folderId)}</Text>
+                      </View>
+                      <ExpiryBadge iso={f.expiresOn as string} />
+                    </Pressable>
+                  );
+                })}
+                {attention.length > 5 ? <Text style={styles.attentionSub}>and {attention.length - 5} more. Search to find them.</Text> : null}
+              </View>
+            ) : null}
             {rows.map((pair, i) => (
               <View key={i} style={{ flexDirection: "row", gap: 14 }}>
                 {pair.map((f) => (
@@ -169,6 +202,11 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   searchInput: { flex: 1, fontFamily: fonts.body, fontSize: 16, color: colors.ink, paddingVertical: 0 },
+  attention: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 14, gap: 4, borderWidth: 1.5, borderColor: "#F2D9A6" },
+  attentionTitle: { fontFamily: fonts.heading, fontSize: 17, color: colors.ink, marginBottom: 4 },
+  attentionRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
+  attentionName: { fontFamily: fonts.semibold, fontSize: 15, color: colors.ink },
+  attentionSub: { fontFamily: fonts.body, fontSize: 13, color: colors.muted },
   tip: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, textAlign: "center", marginTop: 6 },
   warn: {
     flexDirection: "row",

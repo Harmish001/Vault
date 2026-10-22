@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { Alert } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { Folder, VaultFile } from "../types";
 import { countInside, plural } from "../utils";
@@ -10,6 +13,7 @@ import { ActionMenu, PromptModal } from "./ui";
 /** Menu + rename + move + delete for one file. Render `element` once in the screen. */
 export function useFileActions() {
   const vault = useVault();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [target, setTarget] = useState<VaultFile | null>(null);
   const [menu, setMenu] = useState(false);
   const [rename, setRename] = useState(false);
@@ -25,6 +29,11 @@ export function useFileActions() {
           target
             ? [
                 { label: "Open", icon: "external-link", onPress: () => openFile(vault.fileUri(target), target.mime) },
+                {
+                  label: "Details & reminders",
+                  icon: "info",
+                  onPress: () => navigation.navigate("FileDetails", { fileId: target.id }),
+                },
                 {
                   label: "Share",
                   icon: "share-2",

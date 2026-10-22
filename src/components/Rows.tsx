@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import { colors, fonts, radius } from "../theme";
 import { Folder, VaultFile } from "../types";
-import { extOf, formatBytes, formatDate, kindOf } from "../utils";
+import { expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../utils";
 
 const KIND_STYLE = {
   image: { bg: "#E3F1FB", fg: "#2F8FD0" },
@@ -28,6 +28,22 @@ export function FileThumb({ name, mime, uri, size = 44 }: { name: string; mime: 
   );
 }
 
+const TONE = {
+  ok: { bg: "#ECEEF5", fg: "#5B6280" },
+  soon: { bg: "#FFF1D6", fg: "#8A5A00" },
+  expired: { bg: "#FBE6E6", fg: "#B02A2A" },
+} as const;
+
+export function ExpiryBadge({ iso }: { iso: string }) {
+  const e = expiryInfo(iso);
+  const t = TONE[e.tone];
+  return (
+    <View style={{ alignSelf: "flex-start", backgroundColor: t.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+      <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: t.fg }}>{e.label}</Text>
+    </View>
+  );
+}
+
 export function FileRow(props: {
   file: VaultFile;
   uri: string;
@@ -44,6 +60,15 @@ export function FileRow(props: {
         <Text style={styles.rowSub} numberOfLines={1}>
           {props.subtitle ? props.subtitle + "  •  " : ""}{formatBytes(f.size)}  •  {formatDate(f.addedAt)}
         </Text>
+        {f.expiresOn || f.tags?.length ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 5 }}>
+            {f.expiresOn ? <ExpiryBadge iso={f.expiresOn} /> : null}
+            {(f.tags ?? []).slice(0, 2).map((t) => (
+              <Text key={t} style={styles.tag}>#{t}</Text>
+            ))}
+            {(f.tags?.length ?? 0) > 2 ? <Text style={styles.tag}>+{(f.tags?.length ?? 0) - 2}</Text> : null}
+          </View>
+        ) : null}
       </View>
       <Pressable onPress={props.onMenu} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Actions for ${f.name}`} style={styles.menuBtn}>
         <Feather name="more-vertical" size={20} color={colors.muted} />
@@ -93,6 +118,7 @@ export function FolderRow(props: { folder: Folder; detail: string; onPress: () =
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.md },
   rowTitle: { fontFamily: fonts.semibold, fontSize: 16, color: colors.ink },
+  tag: { fontFamily: fonts.medium, fontSize: 12, color: colors.primary },
   rowSub: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, marginTop: 2 },
   menuBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   tileBody: {

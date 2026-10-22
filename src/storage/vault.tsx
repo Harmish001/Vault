@@ -3,6 +3,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { isPasswordProtected, unzip, unzipWithPassword, zip, zipWithPassword } from "react-native-zip-archive";
 import { Folder, IncomingFile, VaultFile, VaultIndex } from "../types";
+
+export type FilePatch = Partial<Pick<VaultFile, "notes" | "tags" | "expiresOn" | "fields">>;
 import { extOf, guessMime, stripFileScheme, uid, uniqueName } from "../utils";
 import { SCANNER_TMP, SCAN_OUT } from "../scan/paths";
 
@@ -81,6 +83,7 @@ type Ctx = {
   deleteFolder: (id: string) => Promise<void>;
   addFiles: (folderId: string, incoming: IncomingFile[]) => Promise<{ added: number; failed: string[] }>;
   renameFile: (id: string, name: string) => Promise<void>;
+  updateFile: (id: string, patch: FilePatch) => Promise<void>;
   moveFile: (id: string, folderId: string) => Promise<void>;
   deleteFile: (id: string) => Promise<void>;
   fileUri: (f: VaultFile) => string;
@@ -209,6 +212,33 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       result: undefined,
     }));
 
+  const updateFile: Ctx["updateFile"] = (id, patch) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        files: cur.files.map((f) => {
+          if (f.id !== id) return f;
+          const n: VaultFile = { ...f, ...patch };
+          const notes = n.notes?.trim();
+          if (notes) n.notes = notes;
+          else delete n.notes;
+          const seen = new Set<string>();
+          const tags = (n.tags ?? []).filter((t) => {
+            const k = t.toLowerCase();
+            if (!t || seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          if (tags.length) n.tags = tags;
+          else delete n.tags;
+          if (!n.expiresOn) delete n.expiresOn;
+          if (!n.fields?.length) delete n.fields;
+          return n;
+        }),
+      },
+      result: undefined,
+    }));
+
   const moveFile: Ctx["moveFile"] = (id, folderId) =>
     mutate(async (cur) => ({
       next: { ...cur, files: cur.files.map((f) => (f.id === id ? { ...f, folderId } : f)) },
@@ -308,6 +338,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     deleteFolder,
     addFiles,
     renameFile,
+    updateFile,
     moveFile,
     deleteFile,
     fileUri,

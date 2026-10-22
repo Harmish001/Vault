@@ -177,6 +177,7 @@ export function PromptModal(props: {
   secure?: boolean;
   allowEmpty?: boolean;
   hint?: string;
+  multiline?: boolean;
   withColor?: boolean;
   initialColor?: string;
   onCancel: () => void;
@@ -202,8 +203,9 @@ export function PromptModal(props: {
         autoFocus
         secureTextEntry={props.secure}
         autoCapitalize={props.secure ? "none" : props.withColor ? "words" : "sentences"}
-        style={styles.input}
-        onSubmitEditing={() => ok && props.onSubmit(value, color)}
+        multiline={props.multiline}
+        style={[styles.input, props.multiline && { minHeight: 130, textAlignVertical: "top" }]}
+        onSubmitEditing={() => !props.multiline && ok && props.onSubmit(value, color)}
         selectTextOnFocus
       />
       {props.hint ? <Text style={styles.hint}>{props.hint}</Text> : null}

@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AppState, View } from "react-native";
+import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
@@ -19,16 +20,20 @@ import FolderScreen from "./src/screens/FolderScreen";
 import SaveScreen from "./src/screens/SaveScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import ScanScreen from "./src/screens/ScanScreen";
+import FileDetailsScreen from "./src/screens/FileDetailsScreen";
+import { configureNotifications, syncReminders } from "./src/reminders";
+import { folderPath } from "./src/utils";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+configureNotifications();
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navRef = createNavigationContainerRef<RootStackParamList>();
 const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg } };
 
 function Shell({ fontsReady }: { fontsReady: boolean }) {
-  const { ready: settingsReady } = useSettings();
-  const { ready: vaultReady } = useVault();
+  const { ready: settingsReady, settings } = useSettings();
+  const { ready: vaultReady, files, folders } = useVault();
   const { locked } = useLock();
   const { hasShareIntent, shareIntent } = useShareIntentContext();
   const [navReady, setNavReady] = useState(false);
@@ -50,6 +55,43 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     }
   }, [appReady, navReady, locked, hasShareIntent, shareIntent]);
 
+  // Keep scheduled reminders in step with the files (also after a backup restore).
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => st === "active" && setTick((t) => t + 1));
+    return () => sub.remove();
+  }, []);
+  const entries = useMemo(
+    () =>
+      files
+        .filter((f) => f.expiresOn)
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          folderId: f.folderId,
+          folderLabel: folderPath(folders, f.folderId),
+          expiresOn: f.expiresOn as string,
+        })),
+    [files, folders]
+  );
+  const reminderSig = JSON.stringify([entries, settings.remindersEnabled, settings.remindOffsets, settings.notifyNames, tick]);
+  useEffect(() => {
+    if (appReady) syncReminders(entries, settings).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appReady, reminderSig]);
+
+  // Tapping a reminder opens that file's details (after unlock).
+  const lastResponse = Notifications.useLastNotificationResponse();
+  const handledNote = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lastResponse || !appReady || !navReady || locked) return;
+    const id = lastResponse.notification.request.identifier;
+    if (handledNote.current === id) return;
+    handledNote.current = id;
+    const fileId = (lastResponse.notification.request.content.data as { fileId?: string } | undefined)?.fileId;
+    if (fileId) navRef.navigate("FileDetails", { fileId });
+  }, [lastResponse, appReady, navReady, locked]);
+
   if (!appReady) return <View style={{ flex: 1, backgroundColor: colors.primaryDark }} />;
 
   return (
@@ -60,6 +102,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="Save" component={SaveScreen} />
         <Stack.Screen name="Scan" component={ScanScreen} />
+        <Stack.Screen name="FileDetails" component={FileDetailsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
