@@ -10,8 +10,13 @@ type Ctx = {
   noDeviceLock: boolean;
   /** Wrap anything that opens another full-screen Android activity (scanner, file picker). */
   runExternal: <T>(fn: () => Promise<T>) => Promise<T>;
+  /**
+   * True while the app is coming back from long enough away to re-lock, but the "active" event
+   * that sets `locked` hasn't arrived yet. Deep links can be delivered in that gap.
+   */
+  relockDue: () => boolean;
 };
-const LockContext = createContext<Ctx>({ locked: true, noDeviceLock: false, runExternal: (fn) => fn() });
+const LockContext = createContext<Ctx>({ locked: true, noDeviceLock: false, runExternal: (fn) => fn(), relockDue: () => true });
 export const useLock = () => useContext(LockContext);
 
 export function LockProvider({ children }: { children: React.ReactNode }) {
@@ -87,6 +92,11 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [settings.lockEnabled, settings.lockAfterSec, unlock]);
 
+  const relockDue = useCallback(
+    () => settings.lockEnabled && leftAt.current !== null && Date.now() - leftAt.current > settings.lockAfterSec * 1000,
+    [settings.lockEnabled, settings.lockAfterSec]
+  );
+
   // Hide content in the app switcher and block screenshots.
   useEffect(() => {
     if (settings.blockScreenshots) preventScreenCaptureAsync().catch(() => undefined);
@@ -94,7 +104,7 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   }, [settings.blockScreenshots]);
 
   return (
-    <LockContext.Provider value={{ locked, noDeviceLock, runExternal }}>
+    <LockContext.Provider value={{ locked, noDeviceLock, runExternal, relockDue }}>
       {children}
       <Modal
         visible={locked}
@@ -125,8 +135,8 @@ const styles = StyleSheet.create({
     padding: 32,
   },
   logo: { width: 96, height: 96, borderRadius: 22, marginBottom: 20 },
-  title: { fontFamily: fonts.title, fontSize: 32, color: "#fff" },
-  sub: { fontFamily: fonts.body, fontSize: 16, color: "#C9D0F5", marginTop: 6, marginBottom: 32 },
+  title: { fontFamily: fonts.title, fontSize: 32, color: colors.onPrimary },
+  sub: { fontFamily: fonts.body, fontSize: 16, color: colors.onDarkMuted, marginTop: 6, marginBottom: 32 },
   button: { backgroundColor: colors.accent, paddingHorizontal: 40, paddingVertical: 14, borderRadius: 14 },
-  buttonText: { fontFamily: fonts.semibold, fontSize: 17, color: colors.primaryDark },
+  buttonText: { fontFamily: fonts.semibold, fontSize: 17, color: colors.onPrimary },
 });

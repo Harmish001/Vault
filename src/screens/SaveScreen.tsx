@@ -10,6 +10,7 @@ import { folderPath, formatBytes, plural } from "../utils";
 import { FileThumb } from "../components/Rows";
 import { FolderPicker } from "../components/FolderPicker";
 import { Button, EmptyState, ScreenHeader } from "../components/ui";
+import { useNameSuggestions } from "../components/NameSuggestions";
 
 /** Shown when files are shared into DocVault from the gallery or any other app. */
 export default function SaveScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Save">) {
@@ -19,6 +20,7 @@ export default function SaveScreen({ navigation }: NativeStackScreenProps<RootSt
   const [dest, setDest] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const names = useNameSuggestions();
 
   const incoming = shareIntent.files ?? [];
   // Keep the list on screen even after the intent is reset at the end of a save.
@@ -44,10 +46,12 @@ export default function SaveScreen({ navigation }: NativeStackScreenProps<RootSt
       if (out.failed.length) {
         Alert.alert(`${plural(out.added, "file")} saved`, `These couldn't be added:\n${out.failed.join("\n")}`);
       }
-      navigation.reset({
-        index: 1,
-        routes: [{ name: "Home" }, { name: "Folder", params: { id: dest } }],
-      });
+      await names.review(out.files, () =>
+        navigation.reset({
+          index: 1,
+          routes: [{ name: "Home" }, { name: "Folder", params: { id: dest } }],
+        })
+      );
     } catch {
       Alert.alert("Couldn't save", "Something went wrong. Nothing was lost; please try again.");
       setSaving(false);
@@ -109,6 +113,7 @@ export default function SaveScreen({ navigation }: NativeStackScreenProps<RootSt
           setPicking(false);
         }}
       />
+      {names.element}
     </View>
   );
 }

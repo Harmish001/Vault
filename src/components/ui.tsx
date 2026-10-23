@@ -59,7 +59,7 @@ export function Button(props: {
 }) {
   const kind = props.kind ?? "primary";
   const bg = kind === "primary" ? colors.primary : kind === "danger" ? colors.danger : "transparent";
-  const fg = kind === "secondary" ? colors.primary : "#fff";
+  const fg = kind === "secondary" ? colors.primary : colors.onPrimary;
   return (
     <Pressable
       onPress={props.onPress}
@@ -91,7 +91,7 @@ export function Pill(props: {
   disabled?: boolean;
 }) {
   const dark = props.tone === "dark";
-  const fg = "#fff";
+  const fg = colors.onPrimary;
   return (
     <Pressable
       onPress={props.onPress}
@@ -229,7 +229,7 @@ export function PromptModal(props: {
               accessibilityLabel={`Folder color ${c}`}
               style={[styles.swatch, { backgroundColor: c }, color === c && styles.swatchOn]}
             >
-              {color === c ? <Feather name="check" size={16} color="#fff" /> : null}
+              {color === c ? <Feather name="check" size={16} color={colors.onPrimary} /> : null}
             </Pressable>
           ))}
         </View>
@@ -252,7 +252,7 @@ export const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     elevation: 4,
-    shadowColor: "#000",
+    shadowColor: colors.shadow,
     shadowOpacity: 0.2,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
@@ -281,7 +281,7 @@ export const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingHorizontal: 36, paddingTop: 56, gap: 10 },
   emptyTitle: { fontFamily: fonts.heading, fontSize: 20, color: colors.ink, textAlign: "center" },
   emptyBody: { fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: colors.muted, textAlign: "center", marginBottom: 12 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(20,26,51,0.45)" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.backdrop },
   sheet: {
     position: "absolute",
     left: 0,
@@ -312,5 +312,5 @@ export const styles = StyleSheet.create({
   suggestText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.primary },
   swatches: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 16 },
   swatch: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  swatchOn: { borderWidth: 3, borderColor: "#fff", elevation: 3, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 3 },
+  swatchOn: { borderWidth: 3, borderColor: colors.surface, elevation: 3, shadowColor: colors.shadow, shadowOpacity: 0.25, shadowRadius: 3 },
 });

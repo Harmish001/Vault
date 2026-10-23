@@ -71,12 +71,16 @@ export type Reminder = {
   amountValue?: number;
 };
 
+export type Favorite = { kind: "file" | "folder"; id: string };
+
 export type VaultIndex = {
   version: 1;
   folders: Folder[];
   files: VaultFile[];
   /** absent in indexes written before reminders existed */
   reminders?: Reminder[];
+  /** in the order the user arranged them; absent in older indexes */
+  favorites?: Favorite[];
 };
 
 export type IncomingFile = {
@@ -98,6 +102,10 @@ export type Settings = {
   notifyNames: boolean;
   /** read numbers and dates from scans on the phone */
   ocrEnabled: boolean;
+  /** draw image previews on the home-screen widget (names are always shown) */
+  widgetThumbnails: boolean;
+  /** favorite file ids kept off the home-screen widget */
+  widgetHidden: string[];
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -108,4 +116,6 @@ export const DEFAULT_SETTINGS: Settings = {
   remindOffsets: [60, 30, 7, 0],
   notifyNames: true,
   ocrEnabled: true,
+  widgetThumbnails: false,
+  widgetHidden: [],
 };

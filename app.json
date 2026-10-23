@@ -17,8 +17,7 @@
       "allowBackup": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "monochromeImage": "./assets/adaptive-icon-mono.png",
-        "backgroundColor": "#041E18"
+        "monochromeImage": "./assets/adaptive-icon-mono.png"
       },
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -38,15 +37,13 @@
         {
           "image": "./assets/splash-icon.png",
           "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#041E18"
+          "resizeMode": "contain"
         }
       ],
       [
         "expo-notifications",
         {
-          "icon": "./assets/adaptive-icon-mono.png",
-          "color": "#065F46"
+          "icon": "./assets/adaptive-icon-mono.png"
         }
       ],
       [
@@ -73,7 +70,34 @@
       ],
       "./plugins/withReleaseSigning",
       "@react-native-community/datetimepicker",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "FavoriteCard",
+              "label": "DocVault favorite",
+              "description": "One favorite document. Use the arrows to browse.",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical"
+            },
+            {
+              "name": "FavoritesCarousel",
+              "label": "DocVault favorites",
+              "description": "Your favorite documents side by side. Use the arrows to browse.",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical"
+            }
+          ]
+        }
+      ]
     ]
   }
 }

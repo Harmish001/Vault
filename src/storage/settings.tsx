@@ -12,6 +12,16 @@ type Ctx = {
 
 const SettingsContext = createContext<Ctx | null>(null);
 
+export async function readSettings(): Promise<Settings> {
+  try {
+    const info = await FileSystem.getInfoAsync(SETTINGS_FILE);
+    if (info.exists) return { ...DEFAULT_SETTINGS, ...JSON.parse(await FileSystem.readAsStringAsync(SETTINGS_FILE)) };
+  } catch {
+    // fall back to defaults (lock ON)
+  }
+  return DEFAULT_SETTINGS;
+}
+
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [ready, setReady] = useState(false);
@@ -19,17 +29,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      try {
-        const info = await FileSystem.getInfoAsync(SETTINGS_FILE);
-        if (info.exists) {
-          const parsed = JSON.parse(await FileSystem.readAsStringAsync(SETTINGS_FILE));
-          const merged = { ...DEFAULT_SETTINGS, ...parsed };
-          latest.current = merged;
-          setSettings(merged);
-        }
-      } catch {
-        // fall back to defaults (lock ON)
-      }
+      const merged = await readSettings();
+      latest.current = merged;
+      setSettings(merged);
       setReady(true);
     })();
   }, []);

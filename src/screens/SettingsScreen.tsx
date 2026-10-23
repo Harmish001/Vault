@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
+import * as IntentLauncher from "expo-intent-launcher";
+import { File as PickedFile } from "expo-file-system";
 import Constants from "expo-constants";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
-import { PASSWORD_REQUIRED, useVault } from "../storage/vault";
+import { BACKUPS_UNAVAILABLE, PASSWORD_REQUIRED, backupFileName, useVault } from "../storage/vault";
 import { useSettings } from "../storage/settings";
 import { colors, fonts, radius } from "../theme";
 import { formatBytes, plural } from "../utils";
@@ -37,13 +39,42 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null); // picked file uri awaiting a password
   const [busy, setBusy] = useState<null | "export" | "restore">(null);
 
-  async function doExport(password: string) {
+  function chooseDestination(password: string) {
     setExportPrompt(false);
+    Alert.alert("Where should the backup go?", "Save it to Google Drive, Downloads or another folder, or send it with an app.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Share…", onPress: () => doExport(password) },
+      { text: "Save to Files / Drive", onPress: () => saveToFiles(password) },
+    ]);
+  }
+
+  async function saveToFiles(password: string) {
+    // Android's "save as" screen lists Drive, Downloads and phone folders, and returns a writable uri.
+    const res = await runExternal(() =>
+      IntentLauncher.startActivityAsync("android.intent.action.CREATE_DOCUMENT", {
+        type: "application/zip",
+        category: "android.intent.category.OPENABLE",
+        extra: { "android.intent.extra.TITLE": backupFileName() },
+      })
+    ).catch(() => null);
+    if (res?.resultCode === IntentLauncher.ResultCode.Success && res.data) doExport(password, res.data);
+  }
+
+  async function doExport(password: string, saveTo?: string) {
     setBusy("export");
     try {
-      await exportBackup(password || undefined);
-    } catch {
-      Alert.alert("Backup failed", "The backup file couldn't be created. Check that your phone has free space and try again.");
+      await exportBackup(password || undefined, saveTo);
+      if (saveTo) Alert.alert("Backup saved", "Keep it somewhere safe. You'll need it to restore DocVault on a new phone.");
+    } catch (e) {
+      if (saveTo) {
+        try {
+          new PickedFile(saveTo).delete(); // don't leave an empty backup file behind
+        } catch {
+          // best effort
+        }
+      }
+      const msg = e instanceof Error && e.message === BACKUPS_UNAVAILABLE ? e.message : null;
+      Alert.alert("Backup failed", msg ?? "The backup file couldn't be created. Check that your phone has free space and try again.");
     } finally {
       setBusy(null);
     }
@@ -107,7 +138,7 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
                     style={[styles.pill, settings.lockAfterSec === o.sec && styles.pillOn]}
                     accessibilityRole="button"
                   >
-                    <Text style={[styles.pillText, settings.lockAfterSec === o.sec && { color: "#fff" }]}>{o.label}</Text>
+                    <Text style={[styles.pillText, settings.lockAfterSec === o.sec && { color: colors.onPrimary }]}>{o.label}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -166,7 +197,7 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
                         }}
                         style={[styles.pill, on && styles.pillOn]}
                       >
-                        <Text style={[styles.pillText, on && { color: "#fff" }]}>{o.label}</Text>
+                        <Text style={[styles.pillText, on && { color: colors.onPrimary }]}>{o.label}</Text>
                       </Pressable>
                     );
                   })}
@@ -179,6 +210,20 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
               />
             </>
           ) : null}
+        </Section>
+
+        <Section title="Home-screen widget">
+          <View style={styles.block}>
+            <Text style={styles.body}>
+              Add “DocVault favorite” or “DocVault favorites” from your launcher's widget list. The widget shows names of your favorite documents on the home screen; opening or sharing still asks for unlock.
+            </Text>
+            <Button label="Choose documents for the widget" kind="secondary" onPress={() => navigation.navigate("Favorites")} style={{ marginTop: 12 }} />
+          </View>
+          <Row
+            title="Show image previews"
+            body="Draw small previews of favorite photos on the widget. Anyone who sees your home screen can see them."
+            right={<Switch value={settings.widgetThumbnails} onValueChange={(v) => update({ widgetThumbnails: v })} trackColor={{ true: colors.primary }} />}
+          />
         </Section>
 
         <Section title="Backup">
@@ -214,7 +259,7 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
         confirmLabel="Export"
         hint="A password encrypts the backup with AES-256. Without one, anyone who gets the file can read every document in it. A forgotten password can't be recovered."
         onCancel={() => setExportPrompt(false)}
-        onSubmit={(v) => doExport(v)}
+        onSubmit={(v) => chooseDestination(v)}
       />
       <PromptModal
         visible={restorePrompt !== null}

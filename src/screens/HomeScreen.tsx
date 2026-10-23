@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -10,12 +10,14 @@ import { colors, folderColors, fonts, radius } from "../theme";
 import { countInside, daysUntil, expiryInfo, fileSearchText, folderPath, plural } from "../utils";
 import { nextDue } from "../reminders-plan";
 import { openFile } from "../openFile";
-import { DueBadge, ExpiryBadge, FileRow, FolderRow, FolderTile } from "../components/Rows";
+import { DueBadge, ExpiryBadge, FileRow, FileThumb, FolderRow, FolderTile } from "../components/Rows";
+import { isFavorite } from "../favorites";
+import type { Folder, VaultFile } from "../types";
 import { useFileActions, useFolderActions } from "../components/actions";
 import { Button, EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
 
 export default function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
-  const { folders, files, reminders, createFolder, fileUri } = useVault();
+  const { folders, files, reminders, createFolder, fileUri, favorites, toggleFavorite, shareFile } = useVault();
   const { noDeviceLock } = useLock();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -35,6 +37,18 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
       .filter((x) => x.due && daysUntil(x.due) <= 7)
       .sort((a, b) => (a.due as string).localeCompare(b.due as string));
   }, [reminders]);
+  const favItems = useMemo(
+    () =>
+      favorites.flatMap((fav): ({ kind: "file"; file: VaultFile } | { kind: "folder"; folder: Folder })[] => {
+        if (fav.kind === "file") {
+          const file = files.find((f) => f.id === fav.id);
+          return file ? [{ kind: "file" as const, file }] : [];
+        }
+        const folder = folders.find((f) => f.id === fav.id);
+        return folder ? [{ kind: "folder" as const, folder }] : [];
+      }),
+    [favorites, files, folders]
+  );
   const q = query.trim().toLowerCase();
   const folderHits = q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : [];
   const fileHits = q ? files.filter((f) => fileSearchText(f).includes(q)) : [];
@@ -75,7 +89,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
       >
         {noDeviceLock ? (
           <View style={styles.warn}>
-            <Feather name="alert-triangle" size={18} color="#8A5A00" />
+            <Feather name="alert-triangle" size={18} color={colors.warnInk} />
             <Text style={styles.warnText}>
               This phone has no screen lock, so anyone who picks it up can open DocVault. Set a PIN, pattern or fingerprint in Android settings.
             </Text>
@@ -117,6 +131,8 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
                 subtitle={folderPath(folders, f.folderId)}
                 onPress={() => openFile(fileUri(f), f.mime)}
                 onMenu={() => fileActions.open(f)}
+                favorite={isFavorite(favorites, "file", f.id)}
+                onToggleFavorite={() => toggleFavorite("file", f.id)}
               />
             ))}
             {!folderHits.length && !fileHits.length ? (
@@ -131,6 +147,62 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
           />
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 16, paddingTop: 6 }}>
+            {favItems.length ? (
+              <View>
+                <View style={styles.favHead}>
+                  <Text style={styles.favTitle}>Favorites</Text>
+                  <Pressable onPress={() => navigation.navigate("Favorites")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Edit favorites">
+                    <Text style={styles.favEdit}>Edit</Text>
+                  </Pressable>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 4 }}>
+                  {favItems.map((it) =>
+                    it.kind === "file" ? (
+                      <Pressable
+                        key={it.file.id}
+                        onPress={() => openFile(fileUri(it.file), it.file.mime)}
+                        onLongPress={() => fileActions.open(it.file)}
+                        style={({ pressed }) => [styles.favCard, pressed && { opacity: 0.85 }]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${it.file.name}`}
+                      >
+                        <View style={styles.favTop}>
+                          <FileThumb name={it.file.name} mime={it.file.mime} uri={fileUri(it.file)} size={40} />
+                          <Pressable
+                            onPress={() => shareFile(it.file).catch(() => Alert.alert("Couldn't share this file"))}
+                            hitSlop={10}
+                            style={styles.favShare}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Share ${it.file.name}`}
+                          >
+                            <Feather name="share-2" size={16} color={colors.primary} />
+                          </Pressable>
+                        </View>
+                        <Text style={styles.favName} numberOfLines={2}>{it.file.name}</Text>
+                        <Text style={styles.favSub} numberOfLines={1}>{folderPath(folders, it.file.folderId)}</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        key={it.folder.id}
+                        onPress={() => navigation.navigate("Folder", { id: it.folder.id })}
+                        onLongPress={() => folderActions.open(it.folder)}
+                        style={({ pressed }) => [styles.favCard, { borderColor: it.folder.color }, pressed && { opacity: 0.85 }]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open folder ${it.folder.name}`}
+                      >
+                        <View style={[styles.favFolderIcon, { backgroundColor: it.folder.color + "26" }]}>
+                          <Feather name="folder" size={20} color={it.folder.color} />
+                        </View>
+                        <Text style={styles.favName} numberOfLines={2}>{it.folder.name}</Text>
+                        <Text style={styles.favSub} numberOfLines={1}>{detail(it.folder.id)}</Text>
+                      </Pressable>
+                    )
+                  )}
+                </ScrollView>
+              </View>
+            ) : files.length ? (
+              <Text style={styles.tip}>Tap the star on any file or folder to pin it here.</Text>
+            ) : null}
             {attention.length || dueSoon.length ? (
               <View style={styles.attention}>
                 <Text style={styles.attentionTitle}>Needs attention</Text>
@@ -231,12 +303,29 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   searchInput: { flex: 1, fontFamily: fonts.body, fontSize: 16, color: colors.ink, paddingVertical: 0 },
-  attention: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 14, gap: 4, borderWidth: 1.5, borderColor: "#F2D9A6" },
+  attention: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 14, gap: 4, borderWidth: 1.5, borderColor: colors.warnLine },
   attentionTitle: { fontFamily: fonts.heading, fontSize: 17, color: colors.ink, marginBottom: 4 },
   attentionRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
   attentionName: { fontFamily: fonts.semibold, fontSize: 15, color: colors.ink },
   attentionSub: { fontFamily: fonts.body, fontSize: 13, color: colors.muted },
   tip: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, textAlign: "center", marginTop: 6 },
+  favHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  favTitle: { fontFamily: fonts.heading, fontSize: 17, color: colors.ink },
+  favEdit: { fontFamily: fonts.semibold, fontSize: 14, color: colors.primary },
+  favCard: {
+    width: 136,
+    padding: 12,
+    gap: 4,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+  },
+  favTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 },
+  favShare: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary + "14" },
+  favFolderIcon: { width: 40, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  favName: { fontFamily: fonts.semibold, fontSize: 14, color: colors.ink },
+  favSub: { fontFamily: fonts.body, fontSize: 12, color: colors.muted },
   warn: {
     flexDirection: "row",
     gap: 10,
@@ -244,7 +333,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     padding: 12,
     borderRadius: radius.md,
-    backgroundColor: "#FFF3D6",
+    backgroundColor: colors.warnSoft,
   },
-  warnText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: "#6B4700" },
+  warnText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.warnInk },
 });

@@ -1,6 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { fonts } from "../theme";
+import { colors, fonts } from "../theme";
 
 export type TagType = "check" | "needed";
 
@@ -22,19 +22,19 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   pillCheck: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.neutralSoft,
   },
   pillNeeded: {
-    backgroundColor: "#FEE2E2",
+    backgroundColor: colors.dangerSoft,
   },
   text: {
     fontFamily: fonts.semibold,
     fontSize: 12,
   },
   textCheck: {
-    color: "#334155", // slate-700
+    color: colors.neutralInk,
   },
   textNeeded: {
-    color: "#DC2626", // red-600
+    color: colors.dangerInk,
   },
 });

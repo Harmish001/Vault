@@ -12,6 +12,7 @@ import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
 import { useSettings } from "../storage/settings";
 import { DOC_LABEL, DOC_TAG, DetectedField, DocType, Detection, detectDetails } from "../ocr/parse";
+import { personFor, suggestName } from "../ocr/name";
 import { ocrSupported, readPageText } from "../ocr/read";
 import { requestReminderPermission } from "../reminders";
 import { colors, fonts, radius } from "../theme";
@@ -74,6 +75,8 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
   const [billParsed, setBillParsed] = useState<BillParseResult | null>(null);
   const [remindBill, setRemindBill] = useState(false);
   const [editField, setEditField] = useState<DetectedField | null>(null);
+  const [suggested, setSuggested] = useState<string | null>(null);
+  const ocrText = useRef("");
   const nameEdited = useRef(false);
   const stageRef = useRef(stage);
   stageRef.current = stage;
@@ -278,13 +281,17 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
         } else {
           setBillParsed(null);
         }
+        ocrText.current = texts.join("\n");
+        const s = suggestName({ text: ocrText.current, det: found, bill, person: personFor(folders, dest) });
+        setSuggested(s ? cleanName(s) : null);
+        if (s && !nameEdited.current) setName(cleanName(s));
 
-        if (!found && !bill.isBill) {
+        if (!found && !bill.isBill && !s) {
           ToastAndroid.show(
             failed ? "Couldn't read text on this phone. Saving the scan as it is." : "No numbers or dates found. Saving the scan as it is.",
             ToastAndroid.LONG
           );
-        } else if (!found && bill.isBill) {
+        } else if (!found) {
           found = { docType: "other", fields: [] };
         }
       } finally {
@@ -292,7 +299,6 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
       }
       if (found) {
         setDet(found);
-        if (!nameEdited.current && found.docType !== "other") setName(DOC_LABEL[found.docType]);
         setStage("details");
         return;
       }
@@ -322,6 +328,13 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
       {stage === "details" && det ? (
         <ReviewForm
           det={det}
+          name={name}
+          suggested={suggested}
+          onRename={() => setRenaming(true)}
+          onUseSuggested={() => {
+            if (suggested) setName(suggested);
+            nameEdited.current = false;
+          }}
           billParsed={billParsed}
           remindBill={remindBill}
           onToggleRemindBill={setRemindBill}
@@ -329,8 +342,11 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
           onToggle={(id) => setDet({ ...det, fields: det.fields.map((f) => (f.id === id ? { ...f, on: !f.on } : f)) })}
           onEdit={(f) => setEditField(f)}
           onType={(t) => {
-            setDet({ ...det, docType: t });
-            if (!nameEdited.current && t !== "other") setName(DOC_LABEL[t]);
+            const next = { ...det, docType: t };
+            setDet(next);
+            const s = suggestName({ text: ocrText.current, det: next, bill: billParsed, person: personFor(folders, dest) });
+            setSuggested(s ? cleanName(s) : null);
+            if (s && !nameEdited.current) setName(cleanName(s));
           }}
           onExpiry={(iso) => setDet({ ...det, expiresOn: iso })}
           onBack={() => setStage("pages")}
@@ -368,7 +384,7 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
             <View style={styles.seg}>
               {(["pdf", "images"] as Format[]).map((f) => (
                 <Pressable key={f} onPress={() => setFormat(f)} style={[styles.segItem, format === f && styles.segOn]} accessibilityRole="button">
-                  <Text style={[styles.segText, format === f && { color: "#fff" }]}>{f === "pdf" ? "One PDF" : "Separate images"}</Text>
+                  <Text style={[styles.segText, format === f && { color: colors.onPrimary }]}>{f === "pdf" ? "One PDF" : "Separate images"}</Text>
                 </Pressable>
               ))}
             </View>
@@ -419,6 +435,10 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
 
 function ReviewForm(props: {
   det: Detection;
+  name: string;
+  suggested: string | null;
+  onRename: () => void;
+  onUseSuggested: () => void;
   billParsed: BillParseResult | null;
   remindBill: boolean;
   onToggleRemindBill: (val: boolean) => void;
@@ -460,6 +480,24 @@ function ReviewForm(props: {
           </Text>
         </View>
 
+        <View>
+          <Text style={styles.sectionTitle}>Name</Text>
+          <View style={styles.detCard}>
+            <Pressable onPress={props.onRename} style={styles.detRow} accessibilityRole="button" accessibilityLabel={`Name: ${props.name}. Tap to change`}>
+              <Text style={[styles.detValue, { flex: 1, fontSize: 17 }]}>{props.name}</Text>
+              <Feather name="edit-2" size={16} color={colors.muted} />
+            </Pressable>
+            {props.suggested && props.suggested === props.name ? (
+              <Text style={styles.cardMuted}>Suggested from the text on your scan. Tap to change it.</Text>
+            ) : props.suggested ? (
+              <Pressable onPress={props.onUseSuggested} style={styles.suggestChip} accessibilityRole="button">
+                <Feather name="zap" size={14} color={colors.primary} />
+                <Text style={styles.suggestText} numberOfLines={1}>Use suggested: {props.suggested}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
         {/* Bill Banner (Flow E, §6.5) */}
         {billParsed?.isBill ? (
           <View style={styles.billBanner}>
@@ -471,8 +509,8 @@ function ReviewForm(props: {
             <Switch
               value={remindBill}
               onValueChange={onToggleRemindBill}
-              thumbColor={remindBill ? colors.primary : "#ccc"}
-              trackColor={{ false: "#e0e0e0", true: "#C7D5F7" }}
+              thumbColor={remindBill ? colors.primary : colors.surface}
+              trackColor={{ false: colors.switchOff, true: colors.primaryLine }}
             />
           </View>
         ) : null}
@@ -482,7 +520,7 @@ function ReviewForm(props: {
           <View style={styles.chipRow}>
             {types.map((t) => (
               <Pressable key={t} onPress={() => props.onType(t)} style={[styles.chip, det.docType === t && styles.chipOn]} accessibilityRole="button">
-                <Text style={[styles.chipText, det.docType === t && { color: "#fff" }]}>{DOC_LABEL[t]}</Text>
+                <Text style={[styles.chipText, det.docType === t && { color: colors.onPrimary }]}>{DOC_LABEL[t]}</Text>
               </Pressable>
             ))}
           </View>
@@ -491,7 +529,7 @@ function ReviewForm(props: {
         <View>
           <Text style={styles.sectionTitle}>Save these details</Text>
           <View style={styles.detCard}>
-            {det.fields.length === 0 ? <Text style={styles.cardMuted}>No numbers found. Only the date below was detected.</Text> : null}
+            {det.fields.length === 0 ? <Text style={styles.cardMuted}>No document numbers found on this scan.</Text> : null}
             {det.fields.map((f) => (
               <View key={f.id} style={styles.detRow}>
                 <Pressable style={{ flex: 1 }} onPress={() => props.onEdit(f)} accessibilityRole="button" accessibilityLabel={`Edit ${f.label}`}>
@@ -583,16 +621,16 @@ function Row(props: { label: string; value: string; icon: React.ComponentProps<t
 }
 
 const styles = StyleSheet.create({
-  found: { backgroundColor: "#E6EAFB", borderRadius: radius.lg, padding: 14 },
+  found: { backgroundColor: colors.primarySoft, borderRadius: radius.lg, padding: 14 },
   foundText: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.primaryDark },
   billBanner: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F2F5FE",
+    backgroundColor: colors.primarySoft,
     borderRadius: radius.lg,
     padding: 14,
     borderWidth: 1.5,
-    borderColor: "#C7D5F7",
+    borderColor: colors.primaryLine,
     gap: 12,
   },
   billBannerTitle: {
@@ -621,10 +659,22 @@ const styles = StyleSheet.create({
   detRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   detLabel: { fontFamily: fonts.body, fontSize: 13, color: colors.muted },
   detValue: { fontFamily: fonts.semibold, fontSize: 18, color: colors.ink, letterSpacing: 0.4 },
-  detCheck: { fontFamily: fonts.medium, fontSize: 12, color: "#8A5A00", marginTop: 2 },
+  detCheck: { fontFamily: fonts.medium, fontSize: 12, color: colors.warnInk, marginTop: 2 },
+  suggestChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: colors.primary + "14",
+  },
+  suggestText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.primary, flexShrink: 1 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, paddingBottom: 24 },
   card: { width: "47.5%", backgroundColor: colors.surface, borderRadius: radius.md, padding: 8, gap: 8 },
-  thumb: { aspectRatio: 3 / 4, backgroundColor: "#E8EBF5", borderRadius: 8, overflow: "hidden" },
+  thumb: { aspectRatio: 3 / 4, backgroundColor: colors.surfaceAlt, borderRadius: 8, overflow: "hidden" },
   badge: {
     position: "absolute",
     top: 14,
@@ -637,7 +687,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 6,
   },
-  badgeText: { fontFamily: fonts.semibold, fontSize: 13, color: "#fff" },
+  badgeText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.onPrimary },
   tools: { flexDirection: "row", justifyContent: "space-between" },
   tool: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" },
   panel: {

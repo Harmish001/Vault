@@ -24,4 +24,15 @@ export async function loadKey(create: boolean): Promise<Uint8Array | null> {
   return key;
 }
 
+/**
+ * Throws away the stored key and makes a new one. Only for "start fresh", after the person has
+ * agreed that the data encrypted with the old key can't be read any more.
+ */
+export async function replaceKey(): Promise<Uint8Array> {
+  await SecureStore.deleteItemAsync(KEY_NAME).catch(() => undefined);
+  const key = await loadKey(true);
+  if (!key) throw new Error("The encryption key could not be saved on this phone.");
+  return key;
+}
+
 export const randomNonce = () => Crypto.getRandomBytes(12);

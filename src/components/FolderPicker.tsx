@@ -94,7 +94,7 @@ export function FolderPicker(props: {
           renderItem={({ item }) => {
             const n = countInside(folders, files, item.id);
             return (
-              <Pressable onPress={() => setCurrentId(item.id)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "#ECEFFA" }]}>
+              <Pressable onPress={() => setCurrentId(item.id)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceAlt }]}>
                 <Feather name="folder" size={22} color={item.color} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle} numberOfLines={1}>{item.name}</Text>
@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
   title: { fontFamily: fonts.title, fontSize: 22, color: colors.ink, flex: 1 },
   crumb: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 6, paddingVertical: 10 },
-  up: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#E4E8FA", alignItems: "center", justifyContent: "center" },
+  up: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center" },
   crumbText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.muted, flex: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, paddingHorizontal: 10, borderRadius: radius.md },
   rowTitle: { fontFamily: fonts.semibold, fontSize: 16, color: colors.ink },

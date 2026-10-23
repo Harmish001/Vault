@@ -8,20 +8,23 @@ import { useVault } from "../storage/vault";
 import { colors } from "../theme";
 import { countInside, folderPath, plural, sortFiles } from "../utils";
 import { openFile } from "../openFile";
-import { FileRow, FolderRow } from "../components/Rows";
+import { FavStar, FileRow, FolderRow } from "../components/Rows";
+import { isFavorite } from "../favorites";
 import { useFileActions, useFolderActions } from "../components/actions";
+import { useNameSuggestions } from "../components/NameSuggestions";
 import { EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
 import { useLock } from "../lock/LockProvider";
 
 export default function FolderScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "Folder">) {
   const { id } = route.params;
-  const { folders, files, createFolder, addFiles, fileUri } = useVault();
+  const { folders, files, createFolder, addFiles, fileUri, favorites, toggleFavorite } = useVault();
   const insets = useSafeAreaInsets();
   const { runExternal } = useLock();
   const [newFolder, setNewFolder] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileActions = useFileActions();
   const folderActions = useFolderActions(() => navigation.goBack());
+  const names = useNameSuggestions();
 
   const folder = folders.find((f) => f.id === id);
   useEffect(() => {
@@ -49,6 +52,7 @@ export default function FolderScreen({ navigation, route }: NativeStackScreenPro
       if (out.failed.length) {
         Alert.alert("Some files weren't added", out.failed.join("\n"));
       }
+      await names.review(out.files);
     } catch {
       Alert.alert("Couldn't add files", "Please try again.");
     } finally {
@@ -66,6 +70,7 @@ export default function FolderScreen({ navigation, route }: NativeStackScreenPro
         onBack={() => navigation.goBack()}
         right={
           <>
+            <FavStar on={isFavorite(favorites, "folder", id)} onPress={() => toggleFavorite("folder", id)} label={folder.name} size={22} />
             <IconButton icon="folder-plus" label="New subfolder" onPress={() => setNewFolder(true)} />
             <IconButton icon="more-vertical" label="Folder options" onPress={() => folderActions.open(folder)} />
           </>
@@ -85,7 +90,15 @@ export default function FolderScreen({ navigation, route }: NativeStackScreenPro
           );
         })}
         {here.map((f) => (
-          <FileRow key={f.id} file={f} uri={fileUri(f)} onPress={() => openFile(fileUri(f), f.mime)} onMenu={() => fileActions.open(f)} />
+          <FileRow
+            key={f.id}
+            file={f}
+            uri={fileUri(f)}
+            onPress={() => openFile(fileUri(f), f.mime)}
+            onMenu={() => fileActions.open(f)}
+            favorite={isFavorite(favorites, "file", f.id)}
+            onToggleFavorite={() => toggleFavorite("file", f.id)}
+          />
         ))}
         {empty ? (
           <EmptyState
@@ -115,6 +128,7 @@ export default function FolderScreen({ navigation, route }: NativeStackScreenPro
       />
       {fileActions.element}
       {folderActions.element}
+      {names.element}
     </View>
   );
 }

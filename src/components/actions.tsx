@@ -7,6 +7,7 @@ import { useVault } from "../storage/vault";
 import { Folder, VaultFile } from "../types";
 import { countInside, plural } from "../utils";
 import { openFile } from "../openFile";
+import { isFavorite } from "../favorites";
 import { FolderPicker } from "./FolderPicker";
 import { ActionMenu, PromptModal } from "./ui";
 
@@ -38,6 +39,11 @@ export function useFileActions() {
                   label: "Share",
                   icon: "share-2",
                   onPress: () => vault.shareFile(target).catch(() => Alert.alert("Couldn't share this file")),
+                },
+                {
+                  label: isFavorite(vault.favorites, "file", target.id) ? "Remove from favorites" : "Add to favorites",
+                  icon: "star",
+                  onPress: () => vault.toggleFavorite("file", target.id),
                 },
                 { label: "Rename", icon: "edit-2", onPress: () => setRename(true) },
                 { label: "Move to another folder", icon: "corner-down-right", onPress: () => setMove(true) },
@@ -105,6 +111,11 @@ export function useFolderActions(onDeleted?: () => void) {
         items={
           target
             ? [
+                {
+                  label: isFavorite(vault.favorites, "folder", target.id) ? "Remove from favorites" : "Add to favorites",
+                  icon: "star",
+                  onPress: () => vault.toggleFavorite("folder", target.id),
+                },
                 { label: "Rename or change color", icon: "edit-2", onPress: () => setEdit(true) },
                 {
                   label: "Delete folder",

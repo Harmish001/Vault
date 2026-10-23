@@ -1,14 +1,18 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { NativeModules } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import { File as PickedFile } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { isPasswordProtected, unzip, unzipWithPassword, zip, zipWithPassword } from "react-native-zip-archive";
-import { Folder, IncomingFile, Reminder, VaultFile, VaultIndex } from "../types";
-import { loadKey, randomNonce } from "../security/keystore";
+import { Favorite, Folder, IncomingFile, Reminder, VaultFile, VaultIndex } from "../types";
+import { loadKey, randomNonce, replaceKey } from "../security/keystore";
 import { decryptString, encryptString } from "../security/crypto";
+import { pruneFavorites, toggleFavorite as toggleFav } from "../favorites";
 
 export type FilePatch = Partial<Pick<VaultFile, "notes" | "tags" | "expiresOn" | "fields">>;
 import { extOf, guessMime, stripFileScheme, uid, uniqueName } from "../utils";
 import { SCANNER_TMP, SCAN_OUT } from "../scan/paths";
+import { folderColors } from "../theme";
 
 const DOC = FileSystem.documentDirectory ?? "";
 const CACHE = FileSystem.cacheDirectory ?? "";
@@ -29,6 +33,10 @@ const OLD_ROOT = DOC + "vault_old/";
 const EMPTY: VaultIndex = { version: 1, folders: [], files: [], reminders: [] };
 
 export const PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
+export const BACKUPS_UNAVAILABLE =
+  "Backups need the installed DocVault app. They can't run inside Expo Go, which doesn't include the zip module.";
+export const backupFileName = () => `DocVault-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+const zipReady = () => Boolean(NativeModules.RNZipArchive);
 
 async function exists(uri: string) {
   return (await FileSystem.getInfoAsync(uri)).exists;
@@ -83,7 +91,12 @@ async function removePlainIndexes() {
 export const VAULT_UNREADABLE =
   "DocVault can't read its saved data on this phone. This can happen if the phone's secure storage was reset. Your files are untouched. Restore a backup to continue.";
 
-type Loaded = { key: Uint8Array | null; index: VaultIndex; error: string | null };
+type Loaded = { key: Uint8Array | null; index: VaultIndex; error: string | null; reason?: string };
+
+function unreadable(key: Uint8Array | null, reason: string): Loaded {
+  console.warn("[vault] can't read saved data:", reason);
+  return { key, index: { ...EMPTY }, error: VAULT_UNREADABLE, reason };
+}
 
 /**
  * Loads the vault and, if needed, upgrades it:
@@ -98,8 +111,8 @@ async function loadVault(): Promise<Loaded> {
   let key: Uint8Array | null;
   try {
     key = await loadKey(!encExists); // never invent a key if encrypted data already exists
-  } catch {
-    return { key: null, index: { ...EMPTY }, error: VAULT_UNREADABLE };
+  } catch (e) {
+    return unreadable(null, "secure storage read failed: " + (e instanceof Error ? e.message : String(e)));
   }
 
   const plain = (await readPlain(INDEX_PLAIN)) ?? (await readPlain(INDEX_PLAIN_TMP));
@@ -126,14 +139,36 @@ async function loadVault(): Promise<Loaded> {
   }
 
   if (!current) {
-    if (encExists) return { key, index: { ...EMPTY }, error: VAULT_UNREADABLE };
+    if (encExists) {
+      return unreadable(key, !key ? "encryption key missing" : tried ? "saved data doesn't decrypt with this key" : "saved data file is missing");
+    }
     current = { ...EMPTY };
   }
-  if (!key) return { key, index: current, error: VAULT_UNREADABLE };
+  if (!key) return { ...unreadable(key, "encryption key missing"), index: current };
 
   if (!encExists || importedPlain) await persistIndex(key, current);
   if (plain) await removePlainIndexes();
   return { key, index: current, error: null };
+}
+
+export const vaultFilePath = (storedAs: string) => FILES_DIR + storedAs;
+
+/**
+ * Read-only load for code running without the app UI (the home-screen widget).
+ * Never migrates, creates a key or writes anything; returns null if the index can't be read.
+ */
+export async function readVaultIndex(): Promise<VaultIndex | null> {
+  try {
+    const key = await loadKey(false);
+    if (!key) return null;
+    for (const cand of [INDEX_ENC, INDEX_ENC_TMP]) {
+      const r = await readEncrypted(cand, key);
+      if (r.index) return r.index;
+    }
+  } catch {
+    // treated as unreadable
+  }
+  return null;
 }
 
 function normalizeUri(uri: string) {
@@ -165,10 +200,21 @@ type Ctx = {
   ready: boolean;
   /** set when the encrypted data cannot be read; writes are blocked until a backup is restored */
   error: string | null;
+  /** short technical reason for `error`, for support */
+  errorDetail: string | null;
+  /**
+   * Gives up on unreadable data: the old index is set aside (renamed, not deleted) and the stored
+   * documents are listed in a "Recovered files" folder. Resolves to how many were recovered.
+   */
+  startFresh: () => Promise<number>;
   reminders: Reminder[];
   createReminder: (r: Omit<Reminder, "id" | "createdAt">) => Promise<Reminder>;
   updateReminder: (id: string, patch: Partial<Omit<Reminder, "id" | "createdAt">>) => Promise<void>;
   deleteReminder: (id: string) => Promise<void>;
+  /** only entries whose file or folder still exists, in the user's order */
+  favorites: Favorite[];
+  toggleFavorite: (kind: Favorite["kind"], id: string) => Promise<void>;
+  reorderFavorites: (next: Favorite[]) => Promise<void>;
   folders: Folder[];
   files: VaultFile[];
   createFolder: (name: string, parentId: string | null, color: string) => Promise<Folder>;
@@ -182,7 +228,8 @@ type Ctx = {
   deleteFile: (id: string) => Promise<void>;
   fileUri: (f: VaultFile) => string;
   shareFile: (f: VaultFile) => Promise<void>;
-  exportBackup: (password?: string) => Promise<void>;
+  /** saveTo: a document uri picked with Android's "save as" screen; without it the share sheet opens */
+  exportBackup: (password?: string, saveTo?: string) => Promise<void>;
   restoreBackup: (pickedUri: string, password?: string) => Promise<void>;
   totalBytes: number;
 };
@@ -193,6 +240,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const [index, setIndex] = useState<VaultIndex>(EMPTY);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const latest = useRef<VaultIndex>(EMPTY);
   const keyRef = useRef<Uint8Array | null>(null);
   const errorRef = useRef<string | null>(null);
@@ -203,6 +251,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     errorRef.current = l.error;
     latest.current = l.index;
     setError(l.error);
+    setErrorDetail(l.reason ?? null);
     setIndex(l.index);
   };
 
@@ -275,12 +324,13 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           folders: cur.folders.filter((f) => !doomed.has(f.id)),
           files: cur.files.filter((f) => !doomed.has(f.folderId)),
           reminders: unlinkFile(cur.reminders, goneIds),
+          favorites: (cur.favorites ?? []).filter((f) => (f.kind === "file" ? !goneIds.includes(f.id) : !doomed.has(f.id))),
         },
         result: undefined,
       };
     });
 
-  const ensureFolder: Ctx["ensureFolder"] = (name, color = "#2F8FD0") =>
+  const ensureFolder: Ctx["ensureFolder"] = (name, color = folderColors[0]) =>
     mutate(async (cur) => {
       const match = cur.folders.find((f) => f.parentId === null && f.name.toLowerCase() === name.trim().toLowerCase());
       if (match) return { next: cur, result: match };
@@ -412,10 +462,28 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           ...cur,
           files: cur.files.filter((x) => x.id !== id),
           reminders: unlinkFile(cur.reminders, [id]),
+          favorites: (cur.favorites ?? []).filter((f) => !(f.kind === "file" && f.id === id)),
         },
         result: undefined,
       };
     });
+
+  const toggleFavorite: Ctx["toggleFavorite"] = (kind, id) =>
+    mutate(async (cur) => ({
+      next: { ...cur, favorites: toggleFav(pruneFavorites(cur.favorites, cur.files, cur.folders), kind, id) },
+      result: undefined,
+    }));
+
+  const reorderFavorites: Ctx["reorderFavorites"] = (next) =>
+    mutate(async (cur) => ({
+      next: { ...cur, favorites: pruneFavorites(next, cur.files, cur.folders) },
+      result: undefined,
+    }));
+
+  const favorites = useMemo(
+    () => pruneFavorites(index.favorites, index.files, index.folders),
+    [index.favorites, index.files, index.folders]
+  );
 
   const fileUri = useCallback((f: VaultFile) => FILES_DIR + f.storedAs, []);
 
@@ -428,10 +496,47 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     await Sharing.shareAsync(tmp, { mimeType: f.mime, dialogTitle: f.name });
   };
 
-  const exportBackup: Ctx["exportBackup"] = async (password) => {
+  const startFresh: Ctx["startFresh"] = async () => {
+    await queue.current;
+    const stamp = Date.now();
+    for (const p of [INDEX_ENC, INDEX_ENC_TMP]) {
+      if (await exists(p)) await FileSystem.moveAsync({ from: p, to: `${p}.unreadable-${stamp}` });
+    }
+    // Keep a working key (the set-aside index may still open with it later); replace a missing or broken one.
+    let key: Uint8Array | null = null;
+    try {
+      key = await loadKey(false);
+    } catch {
+      // unreadable key: replaced below
+    }
+    key = key ?? (await replaceKey());
+
+    await FileSystem.makeDirectoryAsync(FILES_DIR, { intermediates: true });
+    const folder: Folder = { id: uid(), name: "Recovered files", parentId: null, color: folderColors[2], createdAt: Date.now() };
+    const files: VaultFile[] = [];
+    for (const storedAs of await FileSystem.readDirectoryAsync(FILES_DIR)) {
+      const info = await FileSystem.getInfoAsync(FILES_DIR + storedAs);
+      if (!info.exists || info.isDirectory) continue;
+      files.push({
+        id: uid(),
+        folderId: folder.id,
+        name: `Recovered ${files.length + 1}${extOf(storedAs)}`,
+        mime: guessMime(storedAs),
+        size: info.size ?? 0,
+        storedAs,
+        addedAt: info.modificationTime ? Math.round(info.modificationTime * 1000) : Date.now(),
+      });
+    }
+    const next: VaultIndex = { ...EMPTY, folders: files.length ? [folder] : [], files };
+    await persistIndex(key, next);
+    apply({ key, index: next, error: null });
+    return files.length;
+  };
+
+  const exportBackup: Ctx["exportBackup"] = async (password, saveTo) => {
+    if (!zipReady()) throw new Error(BACKUPS_UNAVAILABLE);
     await queue.current; // let pending writes finish first
-    const stamp = new Date().toISOString().slice(0, 10);
-    const out = CACHE + `DocVault-backup-${stamp}.zip`;
+    const out = CACHE + backupFileName();
     await FileSystem.deleteAsync(out, { idempotent: true });
     const src = stripFileScheme(ROOT).replace(/\/$/, "");
     const dst = stripFileScheme(out);
@@ -445,10 +550,20 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     } finally {
       await removePlainIndexes();
     }
+    if (saveTo) {
+      // Content URIs from Drive, Downloads etc. can't be copied to with the legacy API; write the bytes instead.
+      try {
+        new PickedFile(saveTo).write(await new PickedFile(out).bytes());
+      } finally {
+        await FileSystem.deleteAsync(out, { idempotent: true });
+      }
+      return;
+    }
     await Sharing.shareAsync(out, { mimeType: "application/zip", dialogTitle: "Save your DocVault backup" });
   };
 
   const restoreBackup: Ctx["restoreBackup"] = async (pickedUri, password) => {
+    if (!zipReady()) throw new Error(BACKUPS_UNAVAILABLE);
     await queue.current;
     await FileSystem.deleteAsync(RESTORE_ZIP, { idempotent: true });
     await FileSystem.deleteAsync(RESTORE_DIR, { idempotent: true });
@@ -508,10 +623,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const value: Ctx = {
     ready,
     error,
+    errorDetail,
+    startFresh,
     reminders: index.reminders ?? [],
     createReminder,
     updateReminder,
     deleteReminder,
+    favorites,
+    toggleFavorite,
+    reorderFavorites,
     folders: index.folders,
     files: index.files,
     createFolder,

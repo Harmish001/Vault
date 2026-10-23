@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Text, ToastAndroid, View } from "react-native";
+import { Alert, AppState, Linking, Text, ToastAndroid, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as DocumentPicker from "expo-document-picker";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
@@ -15,7 +16,7 @@ import { RootStackParamList } from "./src/navigation";
 import { SettingsProvider, useSettings } from "./src/storage/settings";
 import { PASSWORD_REQUIRED, VaultProvider, useVault } from "./src/storage/vault";
 import { LockProvider, useLock } from "./src/lock/LockProvider";
-import { colors } from "./src/theme";
+import { colors, fonts } from "./src/theme";
 import HomeScreen from "./src/screens/HomeScreen";
 import FolderScreen from "./src/screens/FolderScreen";
 import SaveScreen from "./src/screens/SaveScreen";
@@ -29,6 +30,15 @@ import { Button, PromptModal } from "./src/components/ui";
 import RemindersScreen from "./src/screens/RemindersScreen";
 import ReminderEditScreen from "./src/screens/ReminderEditScreen";
 import ShareChooserScreen from "./src/screens/ShareChooserScreen";
+import FavoritesScreen from "./src/screens/FavoritesScreen";
+import { openFile } from "./src/openFile";
+import { refreshWidgets } from "./src/widget";
+
+/** Taps on the home-screen widget arrive as docvault://widget/open?id=… or docvault://widget/share?id=… */
+function parseWidgetLink(url: string | null) {
+  const m = url ? /^docvault:\/\/widget\/(open|share)\?id=([^&]+)/.exec(url) : null;
+  return m ? { action: m[1] as "open" | "share", id: decodeURIComponent(m[2]) } : null;
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 configureNotifications();
@@ -39,8 +49,8 @@ const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background
 
 function Shell({ fontsReady }: { fontsReady: boolean }) {
   const { ready: settingsReady, settings } = useSettings();
-  const { ready: vaultReady, files, folders, reminders, updateReminder, error: vaultError } = useVault();
-  const { locked } = useLock();
+  const { ready: vaultReady, files, folders, reminders, favorites, updateReminder, fileUri, shareFile, error: vaultError } = useVault();
+  const { locked, relockDue } = useLock();
   const { hasShareIntent, shareIntent } = useShareIntentContext();
   const [navReady, setNavReady] = useState(false);
   const hidden = useRef(false);
@@ -126,6 +136,34 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     }
   }, [lastResponse, appReady, navReady, locked, vaultError, reminders, updateReminder]);
 
+  // Home-screen widget: redraw from the unlocked app whenever what it shows may have changed.
+  useEffect(() => {
+    if (appReady && !vaultError) refreshWidgets({ index: { files, folders, favorites }, settings });
+  }, [appReady, vaultError, files, folders, favorites, settings]);
+
+  // Widget taps open or share a document, but only after the same unlock as opening the app.
+  const [widgetLink, setWidgetLink] = useState<ReturnType<typeof parseWidgetLink>>(null);
+  useEffect(() => {
+    Linking.getInitialURL().then((u) => setWidgetLink(parseWidgetLink(u)));
+    const sub = Linking.addEventListener("url", (e) => {
+      const link = parseWidgetLink(e.url);
+      if (link) setWidgetLink(link);
+    });
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (!widgetLink || !appReady || !navReady || locked || relockDue() || vaultError) return;
+    setWidgetLink(null);
+    const f = files.find((x) => x.id === widgetLink.id);
+    if (!f) {
+      ToastAndroid.show("That document is no longer in DocVault.", ToastAndroid.SHORT);
+    } else if (widgetLink.action === "share") {
+      shareFile(f).catch(() => Alert.alert("Couldn't share this file"));
+    } else {
+      openFile(fileUri(f), f.mime);
+    }
+  }, [widgetLink, appReady, navReady, locked, relockDue, vaultError, files, fileUri, shareFile]);
+
   if (!appReady) return <View style={{ flex: 1, backgroundColor: colors.primaryDark }} />;
   if (vaultError) return <VaultProblem message={vaultError} />;
 
@@ -141,6 +179,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="Reminders" component={RemindersScreen} />
         <Stack.Screen name="ReminderEdit" component={ReminderEditScreen} />
         <Stack.Screen name="ShareChooser" component={ShareChooserScreen} />
+        <Stack.Screen name="Favorites" component={FavoritesScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -148,7 +187,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
 
 /** Shown instead of the app when the encrypted data can't be read. Nothing is overwritten. */
 function VaultProblem({ message }: { message: string }) {
-  const { restoreBackup } = useVault();
+  const { restoreBackup, startFresh, errorDetail } = useVault();
   const { runExternal } = useLock();
   const [picked, setPicked] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -174,9 +213,10 @@ function VaultProblem({ message }: { message: string }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center", padding: 28, gap: 14 }}>
-      <Text style={{ fontFamily: "BricolageGrotesque_700Bold", fontSize: 26, color: colors.ink }}>Can't open your data</Text>
-      <Text style={{ fontFamily: "Figtree_400Regular", fontSize: 16, lineHeight: 24, color: colors.muted }}>{message}</Text>
-      {note ? <Text style={{ fontFamily: "Figtree_500Medium", fontSize: 14, color: colors.danger }}>{note}</Text> : null}
+      <Text style={{ fontFamily: fonts.title, fontSize: 26, color: colors.ink }}>Can't open your data</Text>
+      <Text style={{ fontFamily: fonts.body, fontSize: 16, lineHeight: 24, color: colors.muted }}>{message}</Text>
+      {errorDetail ? <Text style={{ fontFamily: fonts.body, fontSize: 12, color: colors.muted }}>Details: {errorDetail}</Text> : null}
+      {note ? <Text style={{ fontFamily: fonts.medium, fontSize: 14, color: colors.danger }}>{note}</Text> : null}
       <Button
         label="Restore from a backup"
         loading={busy}
@@ -184,6 +224,36 @@ function VaultProblem({ message }: { message: string }) {
           const res = await runExternal(() => DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: false }));
           if (!res.canceled && res.assets?.[0]) run(res.assets[0].uri);
         }}
+      />
+      <Button
+        label="Start fresh, keep my files"
+        kind="secondary"
+        disabled={busy}
+        onPress={() =>
+          Alert.alert(
+            "Start fresh?",
+            "Your stored documents are kept and listed in a “Recovered files” folder. Their names, folders, details and reminders can't be brought back. The unreadable data is set aside on the phone, not deleted.",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Start fresh",
+                style: "destructive",
+                onPress: async () => {
+                  setBusy(true);
+                  setNote(null);
+                  try {
+                    const n = await startFresh();
+                    ToastAndroid.show(n ? `${n} files recovered` : "Started fresh", ToastAndroid.SHORT);
+                  } catch (e) {
+                    setNote(e instanceof Error ? e.message : "That didn't work. Please try again.");
+                  } finally {
+                    setBusy(false);
+                  }
+                },
+              },
+            ]
+          )
+        }
       />
       <PromptModal
         visible={picked !== null}
@@ -208,18 +278,20 @@ export default function App() {
   });
 
   return (
-    <SafeAreaProvider>
-      {/* resetOnBackground:false keeps a shared file alive while the phone's unlock screen is showing */}
-      <ShareIntentProvider options={{ resetOnBackground: false }}>
-        <SettingsProvider>
-          <VaultProvider>
-            <LockProvider>
-              <StatusBar style="dark" />
-              <Shell fontsReady={fontsLoaded} />
-            </LockProvider>
-          </VaultProvider>
-        </SettingsProvider>
-      </ShareIntentProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        {/* resetOnBackground:false keeps a shared file alive while the phone's unlock screen is showing */}
+        <ShareIntentProvider options={{ resetOnBackground: false }}>
+          <SettingsProvider>
+            <VaultProvider>
+              <LockProvider>
+                <StatusBar style="dark" />
+                <Shell fontsReady={fontsLoaded} />
+              </LockProvider>
+            </VaultProvider>
+          </SettingsProvider>
+        </ShareIntentProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

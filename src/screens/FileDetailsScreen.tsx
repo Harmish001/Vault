@@ -282,8 +282,8 @@ export default function FileDetailsScreen({
                   accessibilityRole="button"
                   accessibilityLabel={`Remove tag ${t}`}
                 >
-                  <Text style={[styles.chipText, { color: "#fff" }]}>#{t}</Text>
-                  <Feather name="x" size={14} color="#fff" />
+                  <Text style={[styles.chipText, { color: colors.onPrimary }]}>#{t}</Text>
+                  <Feather name="x" size={14} color={colors.onPrimary} />
                 </Pressable>
               ))}
               <Pressable
@@ -480,7 +480,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
     padding: 14,
-    backgroundColor: "#E6EAFB",
+    backgroundColor: colors.primarySoft,
     borderRadius: radius.lg,
   },
   heroText: {

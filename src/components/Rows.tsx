@@ -2,22 +2,29 @@ import React, { useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import * as Clipboard from "expo-clipboard";
-import { colors, fonts, radius } from "../theme";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { colors, fonts, kindColors, radius, toneColors } from "../theme";
 import { Folder, VaultFile } from "../types";
 import { dueInfo, expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../utils";
 
-const KIND_STYLE = {
-  image: { bg: "#E3F1FB", fg: "#2F8FD0" },
-  pdf: { bg: "#FBE6E6", fg: "#C23B3B" },
-  doc: { bg: "#ECFDF5", fg: "#065F46" },
-  sheet: { bg: "#E2F3EA", fg: "#2F8F6B" },
-  video: { bg: "#EFE6F8", fg: "#7A4FB0" },
-  other: { bg: "#ECEEF5", fg: "#5B6280" },
-} as const;
+export function FavStar({ on, onPress, label, size = 20 }: { on: boolean; onPress: () => void; label: string; size?: number }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityLabel={on ? `Remove ${label} from favorites` : `Add ${label} to favorites`}
+      accessibilityState={{ selected: on }}
+      style={styles.menuBtn}
+    >
+      <Ionicons name={on ? "star" : "star-outline"} size={size} color={on ? colors.star : colors.muted} />
+    </Pressable>
+  );
+}
 
 export function FileThumb({ name, mime, uri, size = 44 }: { name: string; mime: string; uri?: string; size?: number }) {
   const kind = kindOf(mime, name);
-  const s = KIND_STYLE[kind];
+  const s = kindColors[kind];
   if (kind === "image" && uri) {
     return <Image source={{ uri }} style={{ width: size, height: size, borderRadius: 10, backgroundColor: s.bg }} />;
   }
@@ -29,15 +36,9 @@ export function FileThumb({ name, mime, uri, size = 44 }: { name: string; mime: 
   );
 }
 
-const TONE = {
-  ok: { bg: "#ECEEF5", fg: "#5B6280" },
-  soon: { bg: "#FFF1D6", fg: "#8A5A00" },
-  expired: { bg: "#FBE6E6", fg: "#B02A2A" },
-} as const;
-
 export function ExpiryBadge({ iso }: { iso: string }) {
   const e = expiryInfo(iso);
-  const t = TONE[e.tone];
+  const t = toneColors[e.tone];
   return (
     <View style={{ alignSelf: "flex-start", backgroundColor: t.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
       <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: t.fg }}>{e.label}</Text>
@@ -47,7 +48,7 @@ export function ExpiryBadge({ iso }: { iso: string }) {
 
 export function DueBadge({ iso }: { iso: string }) {
   const e = dueInfo(iso);
-  const t = TONE[e.tone];
+  const t = toneColors[e.tone];
   return (
     <View style={{ alignSelf: "flex-start", backgroundColor: t.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
       <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: t.fg }}>{e.label}</Text>
@@ -61,6 +62,8 @@ export function FileRow(props: {
   subtitle?: string;
   onPress: () => void;
   onMenu: () => void;
+  favorite?: boolean;
+  onToggleFavorite?: () => void;
 }) {
   const f = props.file;
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export function FileRow(props: {
   }
 
   return (
-    <Pressable onPress={props.onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "#ECEFFA" }]}>
+    <Pressable onPress={props.onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceAlt }]}>
       <FileThumb name={f.name} mime={f.mime} uri={props.uri} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={styles.titleRow}>
@@ -103,7 +106,7 @@ export function FileRow(props: {
               <Feather
                 name={isPrimaryCopied ? "check" : "copy"}
                 size={12}
-                color={isPrimaryCopied ? "#FFFFFF" : colors.primary}
+                color={isPrimaryCopied ? colors.onPrimary : colors.primary}
               />
               <Text
                 style={[
@@ -143,7 +146,7 @@ export function FileRow(props: {
                   <Feather
                     name={isFieldCopied ? "check" : "copy"}
                     size={11}
-                    color={isFieldCopied ? "#FFFFFF" : colors.primary}
+                    color={isFieldCopied ? colors.onPrimary : colors.primary}
                   />
                   <Text
                     style={[
@@ -169,6 +172,7 @@ export function FileRow(props: {
           </View>
         ) : null}
       </View>
+      {props.onToggleFavorite ? <FavStar on={!!props.favorite} onPress={props.onToggleFavorite} label={f.name} /> : null}
       <Pressable onPress={props.onMenu} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Actions for ${f.name}`} style={styles.menuBtn}>
         <Feather name="more-vertical" size={20} color={colors.muted} />
       </Pressable>
@@ -201,7 +205,7 @@ export function FolderTile(props: { folder: Folder; detail: string; onPress: () 
 
 export function FolderRow(props: { folder: Folder; detail: string; onPress: () => void; onLongPress?: () => void }) {
   return (
-    <Pressable onPress={props.onPress} onLongPress={props.onLongPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "#F1F5F9" }]}>
+    <Pressable onPress={props.onPress} onLongPress={props.onLongPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceAlt }]}>
       <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: props.folder.color + "26", alignItems: "center", justifyContent: "center" }}>
         <Feather name="folder" size={22} color={props.folder.color} />
       </View>
@@ -234,8 +238,8 @@ const styles = StyleSheet.create({
     borderColor: colors.primary + "30",
   },
   inlineCopyBtnCopied: {
-    backgroundColor: "#16A34A",
-    borderColor: "#16A34A",
+    backgroundColor: colors.success,
+    borderColor: colors.success,
   },
   inlineCopyText: {
     fontFamily: fonts.semibold,
@@ -243,7 +247,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   inlineCopyTextCopied: {
-    color: "#FFFFFF",
+    color: colors.onPrimary,
   },
   fieldsContainer: {
     flexDirection: "row",
@@ -259,14 +263,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surfaceAlt,
     borderWidth: 1,
     borderColor: colors.line,
     maxWidth: "100%",
   },
   fieldChipCopied: {
-    backgroundColor: "#16A34A",
-    borderColor: "#16A34A",
+    backgroundColor: colors.success,
+    borderColor: colors.success,
   },
   fieldChipText: {
     fontFamily: fonts.medium,
@@ -274,7 +278,7 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   fieldChipTextCopied: {
-    color: "#FFFFFF",
+    color: colors.onPrimary,
     fontFamily: fonts.semibold,
   },
   tag: { fontFamily: fonts.medium, fontSize: 12, color: colors.primary },

@@ -1,11 +1,11 @@
 """
 Generates all DocVault launcher, adaptive, and splash artwork.
-Bespoke brand redesign: Alpine Forest Emerald & Brushed Platinum Vault-Shield.
-Master designer aesthetic: Zero blue, zero orange. Pure timeless luxury & security.
-Run: python scripts/make_icons.py
+Vault-Shield mark in the brand colors from src/theme.ts (primaryDark, primary, primaryLight)
+with brushed platinum trim. Change the theme, then run: npm run icons (needs: pip install pillow)
 """
 import math
 import os
+import re
 from PIL import Image, ImageDraw, ImageFilter, ImageChops
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "assets")
@@ -15,23 +15,33 @@ SS = 2  # Supersampling factor for razor-sharp anti-aliased rendering
 W = 1024 * SS
 H = 1024 * SS
 
-# Brand Color Palette: Alpine Forest Emerald & Brushed Platinum
-EMERALD_OBSIDIAN = (4, 30, 24)       # #041E18 Deep Forest Obsidian
-EMERALD_DEEP     = (6, 78, 59)       # #064E3B Rich Forest Emerald
-EMERALD_MID      = (4, 120, 87)      # #047857 Alpine Emerald
-EMERALD_VIBRANT  = (16, 185, 129)    # #10B981 Luminous Mint Emerald
+THEME = open(os.path.join(os.path.dirname(__file__), "..", "src", "theme.ts"), encoding="utf-8").read()
 
-PLATINUM_BRIGHT  = (248, 250, 252)   # #F8FAFC Crisp Platinum
-PLATINUM_MID     = (226, 232, 240)   # #E2E8F0 Brushed Platinum
-PLATINUM_SHADOW  = (148, 163, 184)   # #94A3B8 Polished Titanium
-PLATINUM_DARK    = (100, 116, 139)   # #64748B Shadowed Steel
+
+def theme_rgb(name):
+    hit = re.search(r"\b" + name + r':\s*"#([0-9A-Fa-f]{6})"', THEME)
+    if not hit:
+        raise SystemExit(f"src/theme.ts: colors.{name} must be a 6-digit hex color")
+    return tuple(int(hit.group(1)[i:i + 2], 16) for i in (0, 2, 4))
+
+
+# Brand colors come from src/theme.ts; the platinum trim stays neutral
+BRAND_DARK       = theme_rgb("primaryDark")
+BRAND_DEEP       = theme_rgb("primary")
+BRAND_MID        = theme_rgb("primaryLight")
+SHADOW           = tuple(v // 2 for v in BRAND_DARK) + (130,)
+
+PLATINUM_BRIGHT  = (248, 247, 244)   # #F8F7F4 Warm Platinum
+PLATINUM_MID     = (228, 226, 220)   # #E4E2DC Brushed Platinum
+PLATINUM_SHADOW  = (168, 164, 155)   # #A8A49B Polished Pewter
+PLATINUM_DARK    = (110, 106, 98)    # #6E6A62 Shadowed Pewter
 
 WHITE            = (255, 255, 255)
-OFFWHITE         = (241, 245, 249)
+OFFWHITE         = (241, 240, 236)
 
 
-def create_emerald_gradient():
-    """Luminous radial-linear gradient from rich alpine emerald to deep forest obsidian."""
+def create_brand_gradient():
+    """Radial gradient from the primary brand color to primaryDark."""
     base = Image.new("RGBA", (W, H))
     px = base.load()
     cx, cy = W * 0.38, H * 0.32
@@ -43,9 +53,9 @@ def create_emerald_gradient():
             d = min(1.0, max(0.0, d))
             # Smooth ease curve
             t = d * d * (3 - 2 * d)
-            r = int(EMERALD_DEEP[0] * (1 - t) + EMERALD_OBSIDIAN[0] * t)
-            g = int(EMERALD_DEEP[1] * (1 - t) + EMERALD_OBSIDIAN[1] * t)
-            b = int(EMERALD_DEEP[2] * (1 - t) + EMERALD_OBSIDIAN[2] * t)
+            r = int(BRAND_DEEP[0] * (1 - t) + BRAND_DARK[0] * t)
+            g = int(BRAND_DEEP[1] * (1 - t) + BRAND_DARK[1] * t)
+            b = int(BRAND_DEEP[2] * (1 - t) + BRAND_DARK[2] * t)
             px[x, y] = (r, g, b, 255)
     return base
 
@@ -122,16 +132,16 @@ def draw_vault_shield_mark(scale=1.0, mono=False):
     shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     sd = ImageDraw.Draw(shadow)
     shadow_poly = [(x, y + 16 * scale * SS) for (x, y) in outer_shield]
-    sd.polygon(shadow_poly, fill=(2, 18, 14, 130))
+    sd.polygon(shadow_poly, fill=SHADOW)
     shadow = shadow.filter(ImageFilter.GaussianBlur(radius=28 * scale * SS))
     img = Image.alpha_composite(shadow, img)
     d = ImageDraw.Draw(img)
 
-    # 2. Outer Shield (Faceted 3D emerald bevels)
+    # 2. Outer Shield (Faceted 3D bevels)
     left_shield = [outer_shield[0], outer_shield[5], outer_shield[4], outer_shield[3]]
-    d.polygon(left_shield, fill=EMERALD_DEEP)
+    d.polygon(left_shield, fill=BRAND_DEEP)
     right_shield = [outer_shield[0], outer_shield[1], outer_shield[2], outer_shield[3]]
-    d.polygon(right_shield, fill=EMERALD_MID)
+    d.polygon(right_shield, fill=BRAND_MID)
 
     # 3. Brushed Platinum Trim Inlay
     d.polygon(trim_shield, fill=PLATINUM_SHADOW)
@@ -147,13 +157,13 @@ def draw_vault_shield_mark(scale=1.0, mono=False):
     d.polygon(doc_fold, fill=PLATINUM_MID)
     d.line([doc_fold[0], doc_fold[2], doc_fold[1]], fill=PLATINUM_DARK, width=int(3 * scale * SS))
 
-    # 6. Central Vault Shield Monogram ("V" in Emerald)
+    # 6. Central Vault Shield Monogram ("V" in brand color)
     v_left = [p(395, 430), p(450, 430), p(512, 560), p(512, 660)]
     v_right = [p(629, 430), p(574, 430), p(512, 560), p(512, 660)]
-    d.polygon(v_left, fill=EMERALD_DEEP)
-    d.polygon(v_right, fill=EMERALD_MID)
+    d.polygon(v_left, fill=BRAND_DEEP)
+    d.polygon(v_right, fill=BRAND_MID)
 
-    # 7. Vault Center Seal (Brushed Titanium Dial + Emerald Core)
+    # 7. Vault Center Seal (Brushed Titanium Dial + brand core)
     dial_cy = p(512, 490)[1]
     r_outer = 48 * scale * SS
     r_inner = 28 * scale * SS
@@ -164,8 +174,8 @@ def draw_vault_shield_mark(scale=1.0, mono=False):
     d.ellipse([cx - r_outer + 3, dial_cy - r_outer + 3, cx + r_outer - 3, dial_cy + r_outer - 3], fill=PLATINUM_BRIGHT)
     # Dial track
     d.ellipse([cx - r_inner, dial_cy - r_inner, cx + r_inner, dial_cy + r_inner], fill=PLATINUM_MID)
-    # Emerald lock core
-    d.ellipse([cx - r_core, dial_cy - r_core, cx + r_core, dial_cy + r_core], fill=EMERALD_DEEP)
+    # Brand lock core
+    d.ellipse([cx - r_core, dial_cy - r_core, cx + r_core, dial_cy + r_core], fill=BRAND_DEEP)
 
     # Precision vault laser ticks on the dial rim (8-axis dial)
     tick_len = 8 * scale * SS
@@ -189,10 +199,10 @@ def save_resized(img, filename, size=1024):
 
 
 def main():
-    print("Generating bespoke Alpine Emerald & Platinum brand artwork...")
+    print("Generating brand artwork from src/theme.ts...")
 
-    # 1. Full Launcher Icon (emerald gradient background + vault emblem)
-    bg = create_emerald_gradient()
+    # 1. Full Launcher Icon (brand gradient background + vault emblem)
+    bg = create_brand_gradient()
     fg_full = draw_vault_shield_mark(scale=0.90)
     full_icon = Image.alpha_composite(bg, fg_full)
     save_resized(full_icon, "icon.png", 1024)
