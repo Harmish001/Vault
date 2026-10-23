@@ -25,8 +25,8 @@ Built with Expo SDK 54 (React Native, TypeScript, new architecture). Android onl
 
 1. Create a GitHub repo and push this folder to the `main` branch.
 2. Open the **Actions** tab → **Build Android APK**. It runs on every push, or press **Run workflow**.
-3. When it finishes (about 10-15 minutes the first time), open the run and download the **DocVault-apk** artifact. Unzip it, copy the `.apk` to your phone and install it (allow "install unknown apps" when asked).
-4. To publish a downloadable release: `git tag v1.0.0 && git push --tags`. The APK is attached to a GitHub Release.
+3. When it finishes (about 10-15 minutes the first time), open the repo's **Releases** section: every build of `main` is published there as **DocVault &lt;version&gt; (build N)** with the `.apk` attached, and marked Latest. Download it on your phone and install it (allow "install unknown apps" when asked). Pull-request builds only upload the **DocVault-apk** artifact on the run page.
+4. For a named version: bump `version` in `app.json`, then `git tag v1.5.0 && git push --tags`. That build is released under the `v1.5.0` tag.
 
 ### Sign with your own key (recommended)
 

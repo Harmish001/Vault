@@ -81,8 +81,20 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
 
-      - name: Attach APK to the GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Read the app version
+        id: version
+        run: echo "version=$(jq -r .expo.version app.json)" >> "$GITHUB_OUTPUT"
+
+      # Version tags (v1.5.0) publish under their own tag; every main build gets a build-N tag.
+      # Tags created here use GITHUB_TOKEN, so they don't start another run of this workflow.
+      - name: Publish the APK as a GitHub Release
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
+          target_commitish: ${{ github.sha }}
+          name: DocVault ${{ steps.version.outputs.version }} (build ${{ github.run_number }})
+          generate_release_notes: true
+          make_latest: true
           files: dist/*.apk
+          fail_on_unmatched_files: true
