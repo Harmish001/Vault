@@ -69,6 +69,7 @@
         }
       ],
       "./plugins/withReleaseSigning",
+      "./plugins/withQuickActions",
       "@react-native-community/datetimepicker",
       "expo-secure-store",
       [

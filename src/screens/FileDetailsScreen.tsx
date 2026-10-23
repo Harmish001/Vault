@@ -1,23 +1,18 @@
 import React, { useEffect, useState } from "react";
 import {
-  Alert,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
 import * as Clipboard from "expo-clipboard";
-import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useSettings } from "../storage/settings";
-import { requestReminderPermission } from "../reminders";
 import { openFile } from "../openFile";
 import { colors, fonts, radius } from "../theme";
 import { FileField } from "../types";
@@ -27,28 +22,16 @@ import {
   formatDate,
   maskValue,
   parseISODate,
-  toISODate,
-  uid,
 } from "../utils";
 import { FileThumb } from "../components/Rows";
 import { ExpiryBadge } from "../components/Rows";
+import { FieldModal, useExpiry } from "../components/QuickDetails";
 import {
   Button,
   IconButton,
   PromptModal,
   ScreenHeader,
-  SheetModal,
 } from "../components/ui";
-
-const LABEL_SUGGESTIONS = [
-  "Document number",
-  "Name on document",
-  "Issue date",
-  "Issued by",
-  "Policy number",
-  "Account number",
-  "Vehicle number",
-];
 
 export default function FileDetailsScreen({
   navigation,
@@ -66,6 +49,7 @@ export default function FileDetailsScreen({
   );
   const [tagPrompt, setTagPrompt] = useState(false);
   const [notesPrompt, setNotesPrompt] = useState(false);
+  const expiry = useExpiry();
 
   useEffect(() => {
     if (!file && navigation.canGoBack()) navigation.goBack();
@@ -78,34 +62,7 @@ export default function FileDetailsScreen({
     .filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase()))
     .slice(0, 8);
 
-  async function setExpiry(d?: Date) {
-    if (!file) return;
-    await updateFile(file.id, { expiresOn: d ? toISODate(d) : undefined });
-    if (d && settings.remindersEnabled) {
-      const ok = await requestReminderPermission();
-      if (!ok) {
-        Alert.alert(
-          "Reminders can't be shown",
-          "Notifications are turned off for DocVault. The expiry date is saved and shown in the app. Turn on notifications in Android settings to get reminders.",
-          [
-            { text: "Not now", style: "cancel" },
-            { text: "Open settings", onPress: () => Linking.openSettings() },
-          ],
-        );
-      }
-    }
-  }
-
-  function pickDate() {
-    if (!file) return;
-    DateTimePickerAndroid.open({
-      value: file.expiresOn ? parseISODate(file.expiresOn) : new Date(),
-      mode: "date",
-      onChange: (e, d) => {
-        if (e.type === "set" && d) setExpiry(d);
-      },
-    });
-  }
+  const setExpiry = (d?: Date) => expiry.set(file, d);
 
   async function copy(f: FileField) {
     await Clipboard.setStringAsync(f.value);
@@ -119,13 +76,8 @@ export default function FileDetailsScreen({
     if (t) updateFile(file.id, { tags: [...tags, t] });
   }
 
-  function saveField(label: string, value: string, existing?: FileField) {
+  function saveField(next: FileField, existing?: FileField) {
     if (!file) return;
-    const next: FileField = {
-      id: existing?.id ?? uid(),
-      label: label.trim(),
-      value: value.trim(),
-    };
     updateFile(file.id, {
       fields: existing
         ? fields.map((x) => (x.id === existing.id ? next : x))
@@ -184,7 +136,7 @@ export default function FileDetailsScreen({
             <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
               <Button
                 label={file.expiresOn ? "Change date" : "Set expiry date"}
-                onPress={pickDate}
+                onPress={() => expiry.pick(file)}
                 style={{ flex: 1 }}
               />
               {file.expiresOn ? (
@@ -364,8 +316,8 @@ export default function FileDetailsScreen({
       <FieldModal
         state={fieldEdit}
         onClose={() => setFieldEdit(null)}
-        onSave={(label, value, existing) => {
-          saveField(label, value, existing);
+        onSave={(field, existing) => {
+          saveField(field, existing);
           setFieldEdit(null);
         }}
         onDelete={(f) => {
@@ -374,88 +326,6 @@ export default function FileDetailsScreen({
         }}
       />
     </View>
-  );
-}
-
-function FieldModal(props: {
-  state: { field?: FileField } | null;
-  onClose: () => void;
-  onSave: (label: string, value: string, existing?: FileField) => void;
-  onDelete: (f: FileField) => void;
-}) {
-  const existing = props.state?.field;
-  const [label, setLabel] = useState("");
-  const [value, setValue] = useState("");
-  useEffect(() => {
-    if (props.state) {
-      setLabel(existing?.label ?? "");
-      setValue(existing?.value ?? "");
-    }
-  }, [props.state, existing]);
-  const ok = label.trim().length > 0 && value.trim().length > 0;
-
-  return (
-    <SheetModal
-      visible={props.state !== null}
-      onClose={props.onClose}
-      position="top"
-    >
-      <Text style={styles.modalTitle}>
-        {existing ? "Edit detail" : "Add detail"}
-      </Text>
-      <TextInput
-        value={label}
-        onChangeText={setLabel}
-        placeholder="Label, e.g. Document number"
-        placeholderTextColor={colors.muted}
-        style={styles.input}
-        autoCapitalize="sentences"
-      />
-      <View style={[styles.chips, { marginVertical: 10 }]}>
-        {LABEL_SUGGESTIONS.slice(0, 4).map((l) => (
-          <Pressable
-            key={l}
-            onPress={() => setLabel(l)}
-            style={styles.chip}
-            accessibilityRole="button"
-          >
-            <Text style={styles.chipText}>{l}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <TextInput
-        value={value}
-        onChangeText={setValue}
-        placeholder="Value"
-        placeholderTextColor={colors.muted}
-        style={styles.input}
-        autoCapitalize="characters"
-        autoCorrect={false}
-      />
-      <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
-        {existing ? (
-          <Button
-            label="Delete"
-            kind="danger"
-            onPress={() => props.onDelete(existing)}
-            style={{ flex: 1 }}
-          />
-        ) : (
-          <Button
-            label="Cancel"
-            kind="secondary"
-            onPress={props.onClose}
-            style={{ flex: 1 }}
-          />
-        )}
-        <Button
-          label="Save"
-          disabled={!ok}
-          onPress={() => props.onSave(label, value, existing)}
-          style={{ flex: 1 }}
-        />
-      </View>
-    </SheetModal>
   );
 }
 
@@ -550,22 +420,5 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: "center",
     paddingHorizontal: 12,
-  },
-  modalTitle: {
-    fontFamily: fonts.heading,
-    fontSize: 19,
-    color: colors.ink,
-    marginBottom: 10,
-  },
-  input: {
-    fontFamily: fonts.body,
-    fontSize: 17,
-    color: colors.ink,
-    borderWidth: 1.5,
-    borderColor: colors.line,
-    borderRadius: radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: colors.bg,
   },
 });

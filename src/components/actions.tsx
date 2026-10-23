@@ -1,14 +1,16 @@
 import React, { useState } from "react";
-import { Alert } from "react-native";
+import { Alert, ToastAndroid } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
-import { Folder, VaultFile } from "../types";
+import { FileField, Folder, VaultFile } from "../types";
 import { countInside, plural } from "../utils";
 import { openFile } from "../openFile";
 import { isFavorite } from "../favorites";
+import { canPinFolders, pinFolder } from "../folderShortcuts";
 import { FolderPicker } from "./FolderPicker";
+import { FieldModal, useExpiry } from "./QuickDetails";
 import { ActionMenu, PromptModal } from "./ui";
 
 /** Menu + rename + move + delete for one file. Render `element` once in the screen. */
@@ -19,6 +21,8 @@ export function useFileActions() {
   const [menu, setMenu] = useState(false);
   const [rename, setRename] = useState(false);
   const [move, setMove] = useState(false);
+  const [addDetail, setAddDetail] = useState<{ field?: FileField } | null>(null);
+  const expiry = useExpiry();
 
   const element = (
     <>
@@ -34,6 +38,12 @@ export function useFileActions() {
                   label: "Details & reminders",
                   icon: "info",
                   onPress: () => navigation.navigate("FileDetails", { fileId: target.id }),
+                },
+                { label: "Add a detail", icon: "plus-square", onPress: () => setAddDetail({}) },
+                {
+                  label: target.expiresOn ? "Change expiry date" : "Set expiry date",
+                  icon: "calendar",
+                  onPress: () => expiry.pick(target),
                 },
                 {
                   label: "Share",
@@ -83,6 +93,19 @@ export function useFileActions() {
           setMove(false);
         }}
       />
+      <FieldModal
+        state={addDetail}
+        onClose={() => setAddDetail(null)}
+        onSave={(field) => {
+          setAddDetail(null);
+          const f = target && vault.files.find((x) => x.id === target.id);
+          if (!f) return;
+          vault
+            .updateFile(f.id, { fields: [...(f.fields ?? []), field] })
+            .then(() => ToastAndroid.show(`${field.label} saved`, ToastAndroid.SHORT))
+            .catch(() => Alert.alert("Couldn't save this detail"));
+        }}
+      />
     </>
   );
 
@@ -117,6 +140,17 @@ export function useFolderActions(onDeleted?: () => void) {
                   onPress: () => vault.toggleFavorite("folder", target.id),
                 },
                 { label: "Rename or change color", icon: "edit-2", onPress: () => setEdit(true) },
+                ...(canPinFolders()
+                  ? [
+                      {
+                        label: "Add to home screen",
+                        icon: "smartphone" as const,
+                        onPress: () => {
+                          if (!pinFolder(target)) Alert.alert("Couldn't add a shortcut", "This phone's home screen doesn't accept shortcuts from apps.");
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   label: "Delete folder",
                   icon: "trash-2",

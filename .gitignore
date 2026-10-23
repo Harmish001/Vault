@@ -40,6 +40,11 @@ yarn-error.*
 /ios
 /android
 
+# Gradle output of local native modules
+modules/*/android/build/
+modules/*/android/.gradle/
+modules/*/android/.cxx/
+
 # signing material
 *.jks
 *.keystore

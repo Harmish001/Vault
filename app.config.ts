@@ -13,6 +13,7 @@ const color = (name: string) => {
 const PLUGIN_COLORS: Record<string, Record<string, string>> = {
   "expo-splash-screen": { backgroundColor: color("primaryDark") },
   "expo-notifications": { color: color("primary") },
+  "./plugins/withQuickActions": { color: color("primary") },
 };
 
 export default ({ config }: ConfigContext): ExpoConfig => ({

@@ -8,7 +8,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
 import { BricolageGrotesque_600SemiBold, BricolageGrotesque_700Bold } from "@expo-google-fonts/bricolage-grotesque";
 import { Figtree_400Regular, Figtree_500Medium, Figtree_600SemiBold } from "@expo-google-fonts/figtree";
-import { NavigationContainer, DefaultTheme, createNavigationContainerRef } from "@react-navigation/native";
+import { NavigationContainer, DefaultTheme, StackActions, createNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ShareIntentProvider, useShareIntentContext } from "expo-share-intent";
@@ -29,15 +29,27 @@ import { nextDue } from "./src/reminders-plan";
 import { Button, PromptModal } from "./src/components/ui";
 import RemindersScreen from "./src/screens/RemindersScreen";
 import ReminderEditScreen from "./src/screens/ReminderEditScreen";
-import ShareChooserScreen from "./src/screens/ShareChooserScreen";
+import ShareChooserScreen, { isSharedImage } from "./src/screens/ShareChooserScreen";
 import FavoritesScreen from "./src/screens/FavoritesScreen";
 import { openFile } from "./src/openFile";
 import { refreshWidgets } from "./src/widget";
+import { syncFolderShortcuts } from "./src/folderShortcuts";
+import { parseBill } from "./src/capture/parseBill";
 
-/** Taps on the home-screen widget arrive as docvault://widget/open?id=… or docvault://widget/share?id=… */
-function parseWidgetLink(url: string | null) {
-  const m = url ? /^docvault:\/\/widget\/(open|share)\?id=([^&]+)/.exec(url) : null;
-  return m ? { action: m[1] as "open" | "share", id: decodeURIComponent(m[2]) } : null;
+type AppLink = { action: "open" | "share" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
+
+/**
+ * Widget taps: docvault://widget/open?id=… or docvault://widget/share?id=…
+ * Launcher shortcuts: docvault://quick/scan, /add, /reminder, and pinned folders as docvault://quick/folder?id=…
+ */
+function parseAppLink(url: string | null): AppLink | null {
+  if (!url) return null;
+  const w = /^docvault:\/\/widget\/(open|share)\?id=([^&]+)/.exec(url);
+  if (w) return { action: w[1] as "open" | "share", id: decodeURIComponent(w[2]) };
+  const q = /^docvault:\/\/quick\/(scan|add|reminder|folder)(?:\?id=([^&]+))?/.exec(url);
+  if (!q) return null;
+  if (q[1] === "folder") return q[2] ? { action: "folder", id: decodeURIComponent(q[2]) } : null;
+  return { action: q[1] } as AppLink;
 }
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -63,11 +75,19 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     }
   }, [appReady]);
 
-  // Files shared from the gallery / other apps: wait for unlock, then open the chooser screen.
+  // Files shared from the gallery / other apps: wait for unlock, then go where the share can be used.
+  // Only photos get the chooser; text can only become a reminder and other files can only be saved.
   useEffect(() => {
     if (!appReady || !navReady || locked) return;
     const cur = navRef.getCurrentRoute()?.name;
-    if (hasShareIntent && cur !== "ShareChooser" && cur !== "Save" && cur !== "ReminderEdit") {
+    if (!hasShareIntent || cur === "ShareChooser" || cur === "Save" || cur === "ReminderEdit") return;
+    const shared = shareIntent.files ?? [];
+    const text = shareIntent.text || shareIntent.webUrl || "";
+    if (!shared.length && text) {
+      navRef.navigate("ReminderEdit", { draft: { result: parseBill(text), source: "share-text", sourceText: text } });
+    } else if (shared.length && !shared.some(isSharedImage)) {
+      navRef.navigate("Save");
+    } else {
       navRef.navigate("ShareChooser");
     }
   }, [appReady, navReady, locked, hasShareIntent, shareIntent]);
@@ -141,28 +161,41 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     if (appReady && !vaultError) refreshWidgets({ index: { files, folders, favorites }, settings });
   }, [appReady, vaultError, files, folders, favorites, settings]);
 
-  // Widget taps open or share a document, but only after the same unlock as opening the app.
-  const [widgetLink, setWidgetLink] = useState<ReturnType<typeof parseWidgetLink>>(null);
   useEffect(() => {
-    Linking.getInitialURL().then((u) => setWidgetLink(parseWidgetLink(u)));
+    if (appReady && !vaultError) syncFolderShortcuts(folders);
+  }, [appReady, vaultError, folders]);
+
+  // Widget and launcher-shortcut taps act only after the same unlock as opening the app.
+  const [appLink, setAppLink] = useState<AppLink | null>(null);
+  useEffect(() => {
+    Linking.getInitialURL().then((u) => setAppLink(parseAppLink(u)));
     const sub = Linking.addEventListener("url", (e) => {
-      const link = parseWidgetLink(e.url);
-      if (link) setWidgetLink(link);
+      const link = parseAppLink(e.url);
+      if (link) setAppLink(link);
     });
     return () => sub.remove();
   }, []);
   useEffect(() => {
-    if (!widgetLink || !appReady || !navReady || locked || relockDue() || vaultError) return;
-    setWidgetLink(null);
-    const f = files.find((x) => x.id === widgetLink.id);
+    if (!appLink || !appReady || !navReady || locked || relockDue() || vaultError) return;
+    setAppLink(null);
+    // push, not navigate: a shortcut always starts a fresh scan / document / reminder
+    if (appLink.action === "scan") return navRef.dispatch(StackActions.push("Scan"));
+    if (appLink.action === "add") return navRef.dispatch(StackActions.push("Save", { pick: true }));
+    if (appLink.action === "reminder") return navRef.dispatch(StackActions.push("ReminderEdit"));
+    if (appLink.action === "folder") {
+      if (folders.some((x) => x.id === appLink.id)) navRef.navigate("Folder", { id: appLink.id });
+      else ToastAndroid.show("That folder is no longer in DocVault.", ToastAndroid.SHORT);
+      return;
+    }
+    const f = files.find((x) => x.id === appLink.id);
     if (!f) {
       ToastAndroid.show("That document is no longer in DocVault.", ToastAndroid.SHORT);
-    } else if (widgetLink.action === "share") {
+    } else if (appLink.action === "share") {
       shareFile(f).catch(() => Alert.alert("Couldn't share this file"));
     } else {
       openFile(fileUri(f), f.mime);
     }
-  }, [widgetLink, appReady, navReady, locked, relockDue, vaultError, files, fileUri, shareFile]);
+  }, [appLink, appReady, navReady, locked, relockDue, vaultError, files, folders, fileUri, shareFile]);
 
   if (!appReady) return <View style={{ flex: 1, backgroundColor: colors.primaryDark }} />;
   if (vaultError) return <VaultProblem message={vaultError} />;

@@ -106,6 +106,8 @@ export type Settings = {
   widgetThumbnails: boolean;
   /** favorite file ids kept off the home-screen widget */
   widgetHidden: string[];
+  /** preselected on the Save screen next time */
+  lastSaveFolderId?: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {

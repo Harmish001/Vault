@@ -16,6 +16,9 @@ import { parseBill } from "../capture/parseBill";
 import { formatBytes } from "../utils";
 import { colors, fonts, radius } from "../theme";
 
+export const isSharedImage = (f: { mimeType?: string | null; fileName?: string | null }) =>
+  (f.mimeType?.toLowerCase() ?? "").startsWith("image/") || /\.(jpg|jpeg|png|webp|heic)$/i.test(f.fileName ?? "");
+
 export default function ShareChooserScreen({
   navigation,
 }: NativeStackScreenProps<RootStackParamList, "ShareChooser">) {
@@ -30,19 +33,7 @@ export default function ShareChooserScreen({
   const textContent = shareIntent.text || shareIntent.webUrl || "";
   const isTextOnly = !files.length && !!textContent;
 
-  // Check file types
-  const imageFiles = useMemo(
-    () =>
-      files.filter((f) => {
-        const mime = f.mimeType?.toLowerCase() ?? "";
-        const name = f.fileName?.toLowerCase() ?? "";
-        return (
-          mime.startsWith("image/") ||
-          /\.(jpg|jpeg|png|webp|heic)$/i.test(name)
-        );
-      }),
-    [files]
-  );
+  const imageFiles = useMemo(() => files.filter(isSharedImage), [files]);
 
   const isImageShare = imageFiles.length > 0;
   const isPdfOrOther = !isTextOnly && !isImageShare;

@@ -14,7 +14,8 @@ export type RootStackParamList = {
   Home: undefined;
   Folder: { id: string };
   Settings: undefined;
-  Save: undefined;
+  /** pick: opened from the "Add document" launcher shortcut, so choose files first */
+  Save: { pick?: boolean } | undefined;
   Scan: { folderId?: string } | undefined;
   FileDetails: { fileId: string };
   Reminders: undefined;
