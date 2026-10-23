@@ -22,7 +22,11 @@ export type VaultFile = {
   /** local calendar date, YYYY-MM-DD */
   expiresOn?: string;
   fields?: FileField[];
+  /** last opened from inside DocVault (epoch ms) */
+  openedAt?: number;
 };
+
+export type FileSort = "name" | "added" | "size" | "expiry" | "opened";
 
 export type ReminderCategory =
   | "telecom"
@@ -73,6 +77,31 @@ export type Reminder = {
 
 export type Favorite = { kind: "file" | "folder"; id: string };
 
+export type EmergencyContact = { id: string; name: string; relation: string; phone: string };
+
+/** The phone owner's details: drawn on the emergency card and offered by autofill. */
+export type Profile = {
+  name: string;
+  /** the owner's own folder, so their saved document numbers are offered together with these details */
+  folderId?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  pincode?: string;
+  /** as typed, e.g. 15/08/1990 */
+  dob?: string;
+  bloodGroup?: string;
+  allergies?: string;
+  conditions?: string;
+  medicines?: string;
+  contacts: EmergencyContact[];
+  /** for whoever finds the phone, e.g. "Reward if returned" */
+  note?: string;
+  /** lock screen: medical details are shown unless turned off; the address only if turned on */
+  showMedical: boolean;
+  showAddress: boolean;
+};
+
 export type VaultIndex = {
   version: 1;
   folders: Folder[];
@@ -81,6 +110,7 @@ export type VaultIndex = {
   reminders?: Reminder[];
   /** in the order the user arranged them; absent in older indexes */
   favorites?: Favorite[];
+  profile?: Profile;
 };
 
 export type IncomingFile = {
@@ -108,6 +138,16 @@ export type Settings = {
   widgetHidden: string[];
   /** preselected on the Save screen next time */
   lastSaveFolderId?: string;
+  /** order of files inside a folder */
+  fileSort: FileSort;
+  /** hand saved details to Android autofill (the details stay encrypted until an unlock) */
+  autofillEnabled?: boolean;
+  /** emergency card drawn on the lock-screen wallpaper */
+  lockCardWallpaper?: boolean;
+  /** emergency card as a notification that stays visible on the lock screen */
+  lockCardNotification?: boolean;
+  /** background photo for the lock-screen card, a file inside the app */
+  lockCardPhoto?: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -120,4 +160,5 @@ export const DEFAULT_SETTINGS: Settings = {
   ocrEnabled: true,
   widgetThumbnails: false,
   widgetHidden: [],
+  fileSort: "added",
 };

@@ -22,4 +22,5 @@ export type RootStackParamList = {
   ReminderEdit: { id?: string; draft?: CaptureDraft } | undefined;
   ShareChooser: undefined;
   Favorites: undefined;
+  MyCard: undefined;
 };

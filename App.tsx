@@ -31,9 +31,11 @@ import RemindersScreen from "./src/screens/RemindersScreen";
 import ReminderEditScreen from "./src/screens/ReminderEditScreen";
 import ShareChooserScreen, { isSharedImage } from "./src/screens/ShareChooserScreen";
 import FavoritesScreen from "./src/screens/FavoritesScreen";
-import { openFile } from "./src/openFile";
+import MyCardScreen from "./src/screens/MyCardScreen";
 import { refreshWidgets } from "./src/widget";
 import { syncFolderShortcuts } from "./src/folderShortcuts";
+import { buildFillProfiles, syncAutofill } from "./src/autofill";
+import { showCardNotification } from "./src/emergency";
 import { parseBill } from "./src/capture/parseBill";
 
 type AppLink = { action: "open" | "share" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
@@ -61,7 +63,7 @@ const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background
 
 function Shell({ fontsReady }: { fontsReady: boolean }) {
   const { ready: settingsReady, settings } = useSettings();
-  const { ready: vaultReady, files, folders, reminders, favorites, updateReminder, fileUri, shareFile, error: vaultError } = useVault();
+  const { ready: vaultReady, files, folders, reminders, favorites, profile, updateReminder, openFile, shareFile, error: vaultError } = useVault();
   const { locked, relockDue } = useLock();
   const { hasShareIntent, shareIntent } = useShareIntentContext();
   const [navReady, setNavReady] = useState(false);
@@ -125,7 +127,9 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     const id = lastResponse.notification.request.identifier;
     if (handledNote.current === id) return;
     handledNote.current = id;
-    const data = lastResponse.notification.request.content.data as { fileId?: string; reminderId?: string; occurrence?: string } | undefined;
+    const data = lastResponse.notification.request.content.data as
+      | { fileId?: string; reminderId?: string; occurrence?: string; emergencyCard?: boolean }
+      | undefined;
     const action = lastResponse.actionIdentifier;
 
     if (data?.reminderId) {
@@ -153,6 +157,8 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
       }
     } else if (data?.fileId) {
       navRef.navigate("FileDetails", { fileId: data.fileId });
+    } else if (data?.emergencyCard) {
+      navRef.navigate("MyCard");
     }
   }, [lastResponse, appReady, navReady, locked, vaultError, reminders, updateReminder]);
 
@@ -164,6 +170,20 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
   useEffect(() => {
     if (appReady && !vaultError) syncFolderShortcuts(folders);
   }, [appReady, vaultError, folders]);
+
+  // Autofill reads its own encrypted copy, refreshed here while the app is unlocked.
+  useEffect(() => {
+    if (!appReady || vaultError) return;
+    syncAutofill(settings.autofillEnabled ? buildFillProfiles(folders, files, profile) : null);
+  }, [appReady, vaultError, settings.autofillEnabled, folders, files, profile]);
+
+  // Android drops notifications on restart; put the emergency card back on the lock screen.
+  useEffect(() => {
+    if (appReady && !vaultError && settings.lockCardNotification && profile?.name.trim()) {
+      showCardNotification(profile).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appReady, vaultError]);
 
   // Widget and launcher-shortcut taps act only after the same unlock as opening the app.
   const [appLink, setAppLink] = useState<AppLink | null>(null);
@@ -193,9 +213,9 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     } else if (appLink.action === "share") {
       shareFile(f).catch(() => Alert.alert("Couldn't share this file"));
     } else {
-      openFile(fileUri(f), f.mime);
+      openFile(f);
     }
-  }, [appLink, appReady, navReady, locked, relockDue, vaultError, files, folders, fileUri, shareFile]);
+  }, [appLink, appReady, navReady, locked, relockDue, vaultError, files, folders, openFile, shareFile]);
 
   if (!appReady) return <View style={{ flex: 1, backgroundColor: colors.primaryDark }} />;
   if (vaultError) return <VaultProblem message={vaultError} />;
@@ -213,6 +233,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="ReminderEdit" component={ReminderEditScreen} />
         <Stack.Screen name="ShareChooser" component={ShareChooserScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />
+        <Stack.Screen name="MyCard" component={MyCardScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

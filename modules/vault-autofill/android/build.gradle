@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.docvault'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.vaultautofill"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+// Same versions the app already ships (React Native's appcompat, expo-local-authentication's biometric).
+dependencies {
+  implementation "androidx.appcompat:appcompat:1.7.0"
+  implementation "androidx.biometric:biometric:1.2.0-alpha04"
+}

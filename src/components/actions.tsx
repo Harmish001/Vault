@@ -6,7 +6,6 @@ import type { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { FileField, Folder, VaultFile } from "../types";
 import { countInside, plural } from "../utils";
-import { openFile } from "../openFile";
 import { isFavorite } from "../favorites";
 import { canPinFolders, pinFolder } from "../folderShortcuts";
 import { FolderPicker } from "./FolderPicker";
@@ -33,7 +32,7 @@ export function useFileActions() {
         items={
           target
             ? [
-                { label: "Open", icon: "external-link", onPress: () => openFile(vault.fileUri(target), target.mime) },
+                { label: "Open", icon: "external-link", onPress: () => vault.openFile(target) },
                 {
                   label: "Details & reminders",
                   icon: "info",

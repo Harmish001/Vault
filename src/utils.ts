@@ -1,4 +1,4 @@
-import type { Folder, VaultFile } from "./types";
+import type { FileSort, Folder, VaultFile } from "./types";
 
 export const uid = () =>
   Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -83,8 +83,54 @@ export function uniqueName(existing: string[], wanted: string): string {
   return `${base} (${Date.now()})${ext}`;
 }
 
-export function sortFiles(files: VaultFile[]): VaultFile[] {
-  return [...files].sort((a, b) => b.addedAt - a.addedAt);
+export const SORT_LABELS: Record<FileSort, string> = {
+  added: "Date added",
+  name: "Name",
+  size: "File size",
+  expiry: "Expiry date",
+  opened: "Last opened",
+};
+
+const byName = (a: VaultFile, b: VaultFile) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+const byNewest = (a: VaultFile, b: VaultFile) => b.addedAt - a.addedAt;
+
+/**
+ * name: A to Z; added: newest first; size: largest first;
+ * expiry: soonest (or already expired) first, files without one last;
+ * opened: most recently opened first, never-opened files last.
+ */
+export function sortFiles(files: VaultFile[], by: FileSort = "added"): VaultFile[] {
+  const cmp = (a: VaultFile, b: VaultFile): number => {
+    switch (by) {
+      case "name":
+        return byName(a, b) || byNewest(a, b);
+      case "size":
+        return b.size - a.size || byName(a, b);
+      case "expiry":
+        if (a.expiresOn && b.expiresOn) return a.expiresOn.localeCompare(b.expiresOn) || byName(a, b);
+        return a.expiresOn ? -1 : b.expiresOn ? 1 : byName(a, b);
+      case "opened":
+        return (b.openedAt ?? 0) - (a.openedAt ?? 0) || byNewest(a, b);
+      default:
+        return byNewest(a, b);
+    }
+  };
+  return [...files].sort(cmp);
+}
+
+export const cleanTag = (raw: string) => raw.trim().replace(/^#+/, "").trim().slice(0, 24);
+
+/** Adds tags, skipping ones already there in any letter case. */
+export function mergeTags(existing: string[] | undefined, add: string[]): string[] {
+  const out = [...(existing ?? [])];
+  const seen = new Set(out.map((t) => t.toLowerCase()));
+  for (const t of add) {
+    if (t && !seen.has(t.toLowerCase())) {
+      seen.add(t.toLowerCase());
+      out.push(t);
+    }
+  }
+  return out;
 }
 
 export const stripFileScheme = (uri: string) => uri.replace(/^file:\/\//, "");

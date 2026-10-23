@@ -181,6 +181,7 @@ export function PromptModal(props: {
   suggestions?: string[];
   withColor?: boolean;
   initialColor?: string;
+  keyboardType?: React.ComponentProps<typeof TextInput>["keyboardType"];
   onCancel: () => void;
   onSubmit: (value: string, color: string) => void;
 }) {
@@ -203,7 +204,8 @@ export function PromptModal(props: {
         placeholderTextColor={colors.muted}
         autoFocus
         secureTextEntry={props.secure}
-        autoCapitalize={props.secure ? "none" : props.withColor ? "words" : "sentences"}
+        keyboardType={props.keyboardType}
+        autoCapitalize={props.secure || props.keyboardType === "email-address" ? "none" : props.withColor ? "words" : "sentences"}
         multiline={props.multiline}
         style={[styles.input, props.multiline && { minHeight: 130, textAlignVertical: "top" }]}
         onSubmitEditing={() => !props.multiline && ok && props.onSubmit(value, color)}

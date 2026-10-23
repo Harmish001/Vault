@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import * as IntentLauncher from "expo-intent-launcher";
@@ -14,6 +14,7 @@ import { formatBytes, plural } from "../utils";
 import { Button, PromptModal, ScreenHeader } from "../components/ui";
 import { useLock } from "../lock/LockProvider";
 import { requestReminderPermission } from "../reminders";
+import { autofillSelected, autofillSupported, openAutofillSettings, turnOffAutofill } from "../autofill";
 
 const OFFSET_OPTIONS = [
   { label: "90 days", d: 90 },
@@ -38,6 +39,41 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
   const [exportPrompt, setExportPrompt] = useState(false);
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null); // picked file uri awaiting a password
   const [busy, setBusy] = useState<null | "export" | "restore">(null);
+  const [fillSelected, setFillSelected] = useState(autofillSelected);
+
+  // The autofill choice is made in Android's settings, so check again whenever we come back.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => st === "active" && setFillSelected(autofillSelected()));
+    return () => sub.remove();
+  }, []);
+
+  function chooseAutofill() {
+    if (!openAutofillSettings()) {
+      Alert.alert("Open it from Settings", "Open the phone's Settings, search for “Autofill service” and choose DocVault.");
+    }
+  }
+
+  function toggleAutofill(on: boolean) {
+    if (!on) {
+      turnOffAutofill();
+      update({ autofillEnabled: false });
+      return;
+    }
+    if (!autofillSupported()) {
+      Alert.alert("Not available", "This phone doesn't support autofill services.");
+      return;
+    }
+    update({ autofillEnabled: true });
+    if (fillSelected) return;
+    Alert.alert(
+      "Choose DocVault for autofill",
+      "Android lets one app fill forms at a time. If Google or a password manager fills your passwords today, choosing DocVault replaces it for other apps' forms. Newer Android versions may keep your password manager as an additional service.",
+      [
+        { text: "Later", style: "cancel" },
+        { text: "Choose DocVault", onPress: chooseAutofill },
+      ]
+    );
+  }
 
   function chooseDestination(password: string) {
     setExportPrompt(false);
@@ -149,6 +185,28 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
             body="Hides DocVault from screenshots, screen recording and the recent-apps view."
             right={<Switch value={settings.blockScreenshots} onValueChange={(v) => update({ blockScreenshots: v })} trackColor={{ true: colors.primary }} />}
           />
+        </Section>
+
+        <Section title="Autofill and My card">
+          <Row
+            title="Fill forms from DocVault"
+            body="In other apps and websites, offer your saved Aadhaar, PAN, passport, licence and other numbers, plus your details from My card. Every fill asks for your fingerprint or PIN first."
+            right={<Switch value={!!settings.autofillEnabled} onValueChange={toggleAutofill} trackColor={{ true: colors.primary }} />}
+          />
+          {settings.autofillEnabled ? (
+            <View style={styles.block}>
+              <Text style={styles.body}>
+                {fillSelected
+                  ? "DocVault is this phone's autofill service. Tap a form field such as “PAN number”, then “Fill from DocVault”."
+                  : "One more step: choose DocVault as the phone's autofill service."}
+              </Text>
+              {!fillSelected ? <Button label="Choose DocVault in Android settings" onPress={chooseAutofill} style={{ marginTop: 12 }} /> : null}
+            </View>
+          ) : null}
+          <View style={styles.block}>
+            <Text style={styles.body}>Your name, contacts and blood group for the lock screen, and the details autofill uses.</Text>
+            <Button label="Open My card" kind="secondary" onPress={() => navigation.navigate("MyCard")} style={{ marginTop: 12 }} />
+          </View>
         </Section>
 
         <Section title="Scanner">

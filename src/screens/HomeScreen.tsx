@@ -9,7 +9,6 @@ import { useLock } from "../lock/LockProvider";
 import { colors, folderColors, fonts, radius } from "../theme";
 import { countInside, daysUntil, expiryInfo, fileSearchText, folderPath, plural } from "../utils";
 import { nextDue } from "../reminders-plan";
-import { openFile } from "../openFile";
 import { DueBadge, ExpiryBadge, FileRow, FileThumb, FolderRow, FolderTile } from "../components/Rows";
 import { isFavorite } from "../favorites";
 import type { Folder, VaultFile } from "../types";
@@ -17,7 +16,7 @@ import { useFileActions, useFolderActions } from "../components/actions";
 import { Button, EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
 
 export default function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
-  const { folders, files, reminders, createFolder, fileUri, favorites, toggleFavorite, shareFile } = useVault();
+  const { folders, files, reminders, createFolder, fileUri, openFile, favorites, toggleFavorite, shareFile } = useVault();
   const { noDeviceLock } = useLock();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -78,6 +77,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
         left={<Image source={require("../../assets/logo-mark.png")} style={{ width: 40, height: 40, borderRadius: 10 }} />}
         right={
           <>
+            <IconButton icon="heart" label="My card" onPress={() => navigation.navigate("MyCard")} />
             <IconButton icon="bell" label="Reminders" onPress={() => navigation.navigate("Reminders")} />
             <IconButton icon="settings" label="Settings" onPress={() => navigation.navigate("Settings")} />
           </>
@@ -129,7 +129,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
                 file={f}
                 uri={fileUri(f)}
                 subtitle={folderPath(folders, f.folderId)}
-                onPress={() => openFile(fileUri(f), f.mime)}
+                onPress={() => openFile(f)}
                 onMenu={() => fileActions.open(f)}
                 favorite={isFavorite(favorites, "file", f.id)}
                 onToggleFavorite={() => toggleFavorite("file", f.id)}
@@ -160,7 +160,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
                     it.kind === "file" ? (
                       <Pressable
                         key={it.file.id}
-                        onPress={() => openFile(fileUri(it.file), it.file.mime)}
+                        onPress={() => openFile(it.file)}
                         onLongPress={() => fileActions.open(it.file)}
                         style={({ pressed }) => [styles.favCard, pressed && { opacity: 0.85 }]}
                         accessibilityRole="button"

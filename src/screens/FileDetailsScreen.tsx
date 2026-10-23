@@ -13,11 +13,11 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useSettings } from "../storage/settings";
-import { openFile } from "../openFile";
 import { colors, fonts, radius } from "../theme";
 import { FileField } from "../types";
 import {
   addYears,
+  cleanTag,
   folderPath,
   formatDate,
   maskValue,
@@ -37,7 +37,7 @@ export default function FileDetailsScreen({
   navigation,
   route,
 }: NativeStackScreenProps<RootStackParamList, "FileDetails">) {
-  const { files, folders, updateFile, fileUri } = useVault();
+  const { files, folders, updateFile, fileUri, openFile } = useVault();
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const file = files.find((f) => f.id === route.params.fileId);
@@ -72,7 +72,7 @@ export default function FileDetailsScreen({
 
   function addTag(raw: string) {
     if (!file) return;
-    const t = raw.trim().replace(/^#+/, "").slice(0, 24);
+    const t = cleanTag(raw);
     if (t) updateFile(file.id, { tags: [...tags, t] });
   }
 
@@ -95,7 +95,7 @@ export default function FileDetailsScreen({
           <IconButton
             icon="external-link"
             label="Open file"
-            onPress={() => openFile(fileUri(file), file.mime)}
+            onPress={() => openFile(file)}
           />
         }
       />

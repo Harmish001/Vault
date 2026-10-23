@@ -1,16 +1,19 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { NativeModules } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import { File as PickedFile } from "expo-file-system";
+import { Directory as PickedDirectory, File as PickedFile } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { isPasswordProtected, unzip, unzipWithPassword, zip, zipWithPassword } from "react-native-zip-archive";
-import { Favorite, Folder, IncomingFile, Reminder, VaultFile, VaultIndex } from "../types";
+import { Favorite, Folder, IncomingFile, Profile, Reminder, VaultFile, VaultIndex } from "../types";
 import { loadKey, randomNonce, replaceKey } from "../security/keystore";
 import { decryptString, encryptString } from "../security/crypto";
 import { pruneFavorites, toggleFavorite as toggleFav } from "../favorites";
 
 export type FilePatch = Partial<Pick<VaultFile, "notes" | "tags" | "expiresOn" | "fields">>;
-import { extOf, guessMime, stripFileScheme, uid, uniqueName } from "../utils";
+import { extOf, guessMime, mergeTags, stripFileScheme, uid, uniqueName } from "../utils";
+import { openFile } from "../openFile";
+
+const safeName = (name: string) => name.replace(/[\\/:*?"<>|]/g, "_");
 import { SCANNER_TMP, SCAN_OUT } from "../scan/paths";
 import { folderColors } from "../theme";
 
@@ -215,6 +218,9 @@ type Ctx = {
   favorites: Favorite[];
   toggleFavorite: (kind: Favorite["kind"], id: string) => Promise<void>;
   reorderFavorites: (next: Favorite[]) => Promise<void>;
+  /** the owner's emergency card and autofill details; null until first saved */
+  profile: Profile | null;
+  saveProfile: (p: Profile) => Promise<void>;
   folders: Folder[];
   files: VaultFile[];
   createFolder: (name: string, parentId: string | null, color: string) => Promise<Folder>;
@@ -225,9 +231,18 @@ type Ctx = {
   renameFile: (id: string, name: string) => Promise<void>;
   updateFile: (id: string, patch: FilePatch) => Promise<void>;
   moveFile: (id: string, folderId: string) => Promise<void>;
+  moveFiles: (ids: string[], folderId: string) => Promise<void>;
   deleteFile: (id: string) => Promise<void>;
+  deleteFiles: (ids: string[]) => Promise<void>;
+  addTags: (ids: string[], tags: string[]) => Promise<void>;
+  /** opens in another app and remembers when, for "Last opened" sorting */
+  openFile: (f: VaultFile) => Promise<void>;
   fileUri: (f: VaultFile) => string;
   shareFile: (f: VaultFile) => Promise<void>;
+  /** copies under their real names into a folder the user picks; resolves how many were saved (0 if cancelled) */
+  exportFiles: (files: VaultFile[]) => Promise<number>;
+  shareFilesZip: (files: VaultFile[]) => Promise<void>;
+  canZip: boolean;
   /** saveTo: a document uri picked with Android's "save as" screen; without it the share sheet opens */
   exportBackup: (password?: string, saveTo?: string) => Promise<void>;
   restoreBackup: (pickedUri: string, password?: string) => Promise<void>;
@@ -447,26 +462,58 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       result: undefined,
     }));
 
-  const moveFile: Ctx["moveFile"] = (id, folderId) =>
-    mutate(async (cur) => ({
-      next: { ...cur, files: cur.files.map((f) => (f.id === id ? { ...f, folderId } : f)) },
-      result: undefined,
-    }));
-
-  const deleteFile: Ctx["deleteFile"] = (id) =>
+  const moveFiles: Ctx["moveFiles"] = (ids, folderId) =>
     mutate(async (cur) => {
-      const f = cur.files.find((x) => x.id === id);
-      if (f) await FileSystem.deleteAsync(FILES_DIR + f.storedAs, { idempotent: true });
+      const moving = new Set(ids);
+      const taken = cur.files.filter((f) => f.folderId === folderId && !moving.has(f.id)).map((f) => f.name);
       return {
         next: {
           ...cur,
-          files: cur.files.filter((x) => x.id !== id),
-          reminders: unlinkFile(cur.reminders, [id]),
-          favorites: (cur.favorites ?? []).filter((f) => !(f.kind === "file" && f.id === id)),
+          files: cur.files.map((f) => {
+            if (!moving.has(f.id) || f.folderId === folderId) return f;
+            const name = uniqueName(taken, f.name);
+            taken.push(name);
+            return { ...f, folderId, name };
+          }),
         },
         result: undefined,
       };
     });
+  const moveFile: Ctx["moveFile"] = (id, folderId) => moveFiles([id], folderId);
+
+  const deleteFiles: Ctx["deleteFiles"] = (ids) =>
+    mutate(async (cur) => {
+      const doomed = new Set(ids);
+      const gone = cur.files.filter((f) => doomed.has(f.id));
+      await Promise.all(gone.map((f) => FileSystem.deleteAsync(FILES_DIR + f.storedAs, { idempotent: true })));
+      return {
+        next: {
+          ...cur,
+          files: cur.files.filter((f) => !doomed.has(f.id)),
+          reminders: unlinkFile(cur.reminders, ids),
+          favorites: (cur.favorites ?? []).filter((f) => !(f.kind === "file" && doomed.has(f.id))),
+        },
+        result: undefined,
+      };
+    });
+  const deleteFile: Ctx["deleteFile"] = (id) => deleteFiles([id]);
+
+  const addTags: Ctx["addTags"] = (ids, tags) =>
+    mutate(async (cur) => {
+      const targets = new Set(ids);
+      return {
+        next: { ...cur, files: cur.files.map((f) => (targets.has(f.id) ? { ...f, tags: mergeTags(f.tags, tags) } : f)) },
+        result: undefined,
+      };
+    });
+
+  const openVaultFile: Ctx["openFile"] = async (f) => {
+    if (!(await openFile(FILES_DIR + f.storedAs, f.mime))) return;
+    await mutate(async (cur) => ({
+      next: { ...cur, files: cur.files.map((x) => (x.id === f.id ? { ...x, openedAt: Date.now() } : x)) },
+      result: undefined,
+    })).catch(() => undefined);
+  };
 
   const toggleFavorite: Ctx["toggleFavorite"] = (kind, id) =>
     mutate(async (cur) => ({
@@ -480,6 +527,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       result: undefined,
     }));
 
+  const saveProfile: Ctx["saveProfile"] = (p) => mutate(async (cur) => ({ next: { ...cur, profile: p }, result: undefined }));
+
   const favorites = useMemo(
     () => pruneFavorites(index.favorites, index.files, index.folders),
     [index.favorites, index.files, index.folders]
@@ -490,10 +539,43 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const shareFile: Ctx["shareFile"] = async (f) => {
     // Share under the real file name instead of the internal id.
     await FileSystem.makeDirectoryAsync(SHARE_DIR, { intermediates: true });
-    const tmp = SHARE_DIR + f.name.replace(/[\\/:*?"<>|]/g, "_");
+    const tmp = SHARE_DIR + safeName(f.name);
     await FileSystem.deleteAsync(tmp, { idempotent: true });
     await FileSystem.copyAsync({ from: FILES_DIR + f.storedAs, to: tmp });
     await Sharing.shareAsync(tmp, { mimeType: f.mime, dialogTitle: f.name });
+  };
+
+  const exportFiles: Ctx["exportFiles"] = async (list) => {
+    const dir = await PickedDirectory.pickDirectoryAsync().catch(() => null);
+    if (!dir) return 0; // picker cancelled
+    const taken: string[] = [];
+    for (const f of list) {
+      const name = uniqueName(taken, safeName(f.name));
+      taken.push(name);
+      dir.createFile(name, f.mime).write(await new PickedFile(FILES_DIR + f.storedAs).bytes());
+    }
+    return list.length;
+  };
+
+  const shareFilesZip: Ctx["shareFilesZip"] = async (list) => {
+    if (!zipReady()) throw new Error(BACKUPS_UNAVAILABLE);
+    const dir = SHARE_DIR + "documents/";
+    const out = SHARE_DIR + `DocVault-documents-${new Date().toISOString().slice(0, 10)}.zip`;
+    await FileSystem.deleteAsync(dir, { idempotent: true });
+    await FileSystem.deleteAsync(out, { idempotent: true });
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    const taken: string[] = [];
+    for (const f of list) {
+      const name = uniqueName(taken, safeName(f.name));
+      taken.push(name);
+      await FileSystem.copyAsync({ from: FILES_DIR + f.storedAs, to: dir + name });
+    }
+    try {
+      await zip(stripFileScheme(dir).replace(/\/$/, ""), stripFileScheme(out));
+    } finally {
+      await FileSystem.deleteAsync(dir, { idempotent: true });
+    }
+    await Sharing.shareAsync(out, { mimeType: "application/zip", dialogTitle: `Share ${list.length} documents` });
   };
 
   const startFresh: Ctx["startFresh"] = async () => {
@@ -632,6 +714,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     favorites,
     toggleFavorite,
     reorderFavorites,
+    profile: index.profile ?? null,
+    saveProfile,
     folders: index.folders,
     files: index.files,
     createFolder,
@@ -642,9 +726,16 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     renameFile,
     updateFile,
     moveFile,
+    moveFiles,
     deleteFile,
+    deleteFiles,
+    addTags,
+    openFile: openVaultFile,
     fileUri,
     shareFile,
+    exportFiles,
+    shareFilesZip,
+    canZip: zipReady(),
     exportBackup,
     restoreBackup,
     totalBytes,

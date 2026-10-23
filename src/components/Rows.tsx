@@ -64,8 +64,12 @@ export function FileRow(props: {
   onMenu: () => void;
   favorite?: boolean;
   onToggleFavorite?: () => void;
+  onLongPress?: () => void;
+  /** set while picking several files; undefined when not picking */
+  selected?: boolean;
 }) {
   const f = props.file;
+  const selecting = props.selected !== undefined;
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const hasFields = Boolean(f.fields && f.fields.length > 0);
   const primaryField = hasFields ? f.fields![0] : null;
@@ -81,7 +85,16 @@ export function FileRow(props: {
   }
 
   return (
-    <Pressable onPress={props.onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceAlt }]}>
+    <Pressable
+      onPress={props.onPress}
+      onLongPress={props.onLongPress}
+      accessibilityState={selecting ? { selected: props.selected } : undefined}
+      style={({ pressed }) => [
+        styles.row,
+        pressed && { backgroundColor: colors.surfaceAlt },
+        props.selected && { backgroundColor: colors.primarySoft },
+      ]}
+    >
       <FileThumb name={f.name} mime={f.mime} uri={props.uri} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={styles.titleRow}>
@@ -172,10 +185,22 @@ export function FileRow(props: {
           </View>
         ) : null}
       </View>
-      {props.onToggleFavorite ? <FavStar on={!!props.favorite} onPress={props.onToggleFavorite} label={f.name} /> : null}
-      <Pressable onPress={props.onMenu} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Actions for ${f.name}`} style={styles.menuBtn}>
-        <Feather name="more-vertical" size={20} color={colors.muted} />
-      </Pressable>
+      {selecting ? (
+        <View style={styles.menuBtn}>
+          <Ionicons
+            name={props.selected ? "checkmark-circle" : "ellipse-outline"}
+            size={24}
+            color={props.selected ? colors.primary : colors.muted}
+          />
+        </View>
+      ) : (
+        <>
+          {props.onToggleFavorite ? <FavStar on={!!props.favorite} onPress={props.onToggleFavorite} label={f.name} /> : null}
+          <Pressable onPress={props.onMenu} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Actions for ${f.name}`} style={styles.menuBtn}>
+            <Feather name="more-vertical" size={20} color={colors.muted} />
+          </Pressable>
+        </>
+      )}
     </Pressable>
   );
 }
