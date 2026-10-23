@@ -24,6 +24,23 @@ export type VaultFile = {
   fields?: FileField[];
 };
 
+export type ReminderCategory =
+  | "telecom"
+  | "utility"
+  | "card"
+  | "insurance"
+  | "subscription"
+  | "rent"
+  | "emi"
+  | "other";
+
+export type CaptureSource =
+  | "manual"
+  | "share-text"
+  | "share-image"
+  | "scan"
+  | "clipboard";
+
 export type Repeat = "none" | "monthly" | "yearly";
 
 export type Reminder = {
@@ -43,6 +60,15 @@ export type Reminder = {
   /** snoozed: notify again at this time (epoch ms) */
   snoozeUntil?: number;
   createdAt: number;
+  /** linked bill file in the vault (VaultFile.id) */
+  fileId?: string;
+  /** consumer number, policy number, phone number (for matching / display) */
+  reference?: string;
+  category?: ReminderCategory;
+  /** for support/debugging only; not shown in UI */
+  source?: CaptureSource;
+  /** parsed numeric rupees when the amount is INR; enables future totals */
+  amountValue?: number;
 };
 
 export type VaultIndex = {

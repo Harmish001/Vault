@@ -22,6 +22,7 @@ import { buildPdf, PdfPage } from "../scan/pdf";
 import { SCAN_OUT } from "../scan/paths";
 import { FolderPicker } from "../components/FolderPicker";
 import { Button, EmptyState, PromptModal, ScreenHeader } from "../components/ui";
+import { parseBill, BillParseResult } from "../capture/parseBill";
 
 // Safe dynamic import to allow running in Expo Go without crashing
 let DocumentScanner: { scanDocument: (options?: { maxNumDocuments?: number }) => Promise<{ status?: string; scannedImages?: string[] }> } | null = null;
@@ -54,7 +55,7 @@ function defaultName() {
 const cleanName = (n: string) => n.replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim();
 
 export default function ScanScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "Scan">) {
-  const { addFiles, folders } = useVault();
+  const { addFiles, folders, createReminder } = useVault();
   const { runExternal } = useLock();
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
@@ -70,6 +71,8 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
   const [reading, setReading] = useState(false);
   const [stage, setStage] = useState<"pages" | "details">("pages");
   const [det, setDet] = useState<Detection | null>(null);
+  const [billParsed, setBillParsed] = useState<BillParseResult | null>(null);
+  const [remindBill, setRemindBill] = useState(false);
   const [editField, setEditField] = useState<DetectedField | null>(null);
   const nameEdited = useRef(false);
   const stageRef = useRef(stage);
@@ -217,6 +220,26 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
       if (out.added === 0) throw new Error("nothing saved");
       await Promise.all(pages.map((p) => FileSystem.deleteAsync(p.uri, { idempotent: true }).catch(() => undefined)));
 
+      // If user enabled the bill reminder (§6.5)
+      if (remindBill && billParsed) {
+        const savedFileId = out.files?.[0]?.id;
+        const due = billParsed.dueOn?.value || toISODate(new Date());
+        await createReminder({
+          title: billParsed.title?.value || base || "Bill",
+          amount: billParsed.amount?.value?.text,
+          amountValue: billParsed.amount?.value?.value,
+          dueOn: due,
+          time: "09:00",
+          repeat: billParsed.repeat?.value || "monthly",
+          offsets: billParsed.offsets || [1, 0],
+          reference: billParsed.reference?.value,
+          category: billParsed.category,
+          source: "scan",
+          fileId: savedFileId,
+        });
+        ToastAndroid.show(`Reminder added for ${formatDate(parseISODate(due).getTime())}`, ToastAndroid.SHORT);
+      }
+
       allowLeave.current = true;
       navigation.reset({ index: 1, routes: [{ name: "Home" }, { name: "Folder", params: { id: dest } }] });
     } catch {
@@ -249,11 +272,20 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
           texts.push(ocrCache.current[p.id]);
         }
         found = detectDetails(texts);
-        if (!found) {
+        const bill = parseBill(texts);
+        if (bill.isBill) {
+          setBillParsed(bill);
+        } else {
+          setBillParsed(null);
+        }
+
+        if (!found && !bill.isBill) {
           ToastAndroid.show(
             failed ? "Couldn't read text on this phone. Saving the scan as it is." : "No numbers or dates found. Saving the scan as it is.",
             ToastAndroid.LONG
           );
+        } else if (!found && bill.isBill) {
+          found = { docType: "other", fields: [] };
         }
       } finally {
         setReading(false);
@@ -290,6 +322,9 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
       {stage === "details" && det ? (
         <ReviewForm
           det={det}
+          billParsed={billParsed}
+          remindBill={remindBill}
+          onToggleRemindBill={setRemindBill}
           saving={saving}
           onToggle={(id) => setDet({ ...det, fields: det.fields.map((f) => (f.id === id ? { ...f, on: !f.on } : f)) })}
           onEdit={(f) => setEditField(f)}
@@ -384,6 +419,9 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
 
 function ReviewForm(props: {
   det: Detection;
+  billParsed: BillParseResult | null;
+  remindBill: boolean;
+  onToggleRemindBill: (val: boolean) => void;
   saving: boolean;
   onToggle: (id: string) => void;
   onEdit: (f: DetectedField) => void;
@@ -394,7 +432,7 @@ function ReviewForm(props: {
   onSkip: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { det } = props;
+  const { det, billParsed, remindBill, onToggleRemindBill } = props;
   const types = Object.keys(DOC_LABEL) as DocType[];
 
   function pickExpiry() {
@@ -407,6 +445,12 @@ function ReviewForm(props: {
     });
   }
 
+  const billParts = [
+    billParsed?.title?.value,
+    billParsed?.amount?.value?.text,
+    billParsed?.dueOn?.value ? `due ${formatDate(parseISODate(billParsed.dueOn.value).getTime())}` : undefined,
+  ].filter(Boolean);
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: 24 }}>
@@ -415,6 +459,23 @@ function ReviewForm(props: {
             DocVault read this from your scan on the phone. Text recognition can make mistakes, so check each value. Tap a value to correct it.
           </Text>
         </View>
+
+        {/* Bill Banner (Flow E, §6.5) */}
+        {billParsed?.isBill ? (
+          <View style={styles.billBanner}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={styles.billBannerTitle}>This looks like a bill</Text>
+              <Text style={styles.billBannerBody}>{billParts.join(" • ")}</Text>
+              <Text style={styles.billBannerLabel}>Remind me to pay it</Text>
+            </View>
+            <Switch
+              value={remindBill}
+              onValueChange={onToggleRemindBill}
+              thumbColor={remindBill ? colors.primary : "#ccc"}
+              trackColor={{ false: "#e0e0e0", true: "#C7D5F7" }}
+            />
+          </View>
+        ) : null}
 
         <View>
           <Text style={styles.sectionTitle}>Document type</Text>
@@ -524,6 +585,32 @@ function Row(props: { label: string; value: string; icon: React.ComponentProps<t
 const styles = StyleSheet.create({
   found: { backgroundColor: "#E6EAFB", borderRadius: radius.lg, padding: 14 },
   foundText: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.primaryDark },
+  billBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F2F5FE",
+    borderRadius: radius.lg,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: "#C7D5F7",
+    gap: 12,
+  },
+  billBannerTitle: {
+    fontFamily: fonts.heading,
+    fontSize: 16,
+    color: colors.ink,
+  },
+  billBannerBody: {
+    fontFamily: fonts.body,
+    fontSize: 13,
+    color: colors.primary,
+  },
+  billBannerLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: colors.ink,
+    marginTop: 4,
+  },
   sectionTitle: { fontFamily: fonts.heading, fontSize: 17, color: colors.ink, marginBottom: 8, marginLeft: 2 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, borderWidth: 1.5, borderColor: colors.line, backgroundColor: colors.surface },

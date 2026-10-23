@@ -28,6 +28,7 @@ import { nextDue } from "./src/reminders-plan";
 import { Button, PromptModal } from "./src/components/ui";
 import RemindersScreen from "./src/screens/RemindersScreen";
 import ReminderEditScreen from "./src/screens/ReminderEditScreen";
+import ShareChooserScreen from "./src/screens/ShareChooserScreen";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 configureNotifications();
@@ -52,11 +53,12 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     }
   }, [appReady]);
 
-  // Files shared from the gallery / other apps: wait for unlock, then open the "Save to" screen.
+  // Files shared from the gallery / other apps: wait for unlock, then open the chooser screen.
   useEffect(() => {
     if (!appReady || !navReady || locked) return;
-    if (hasShareIntent && navRef.getCurrentRoute()?.name !== "Save") {
-      navRef.navigate("Save");
+    const cur = navRef.getCurrentRoute()?.name;
+    if (hasShareIntent && cur !== "ShareChooser" && cur !== "Save" && cur !== "ReminderEdit") {
+      navRef.navigate("ShareChooser");
     }
   }, [appReady, navReady, locked, hasShareIntent, shareIntent]);
 
@@ -138,6 +140,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="FileDetails" component={FileDetailsScreen} />
         <Stack.Screen name="Reminders" component={RemindersScreen} />
         <Stack.Screen name="ReminderEdit" component={ReminderEditScreen} />
+        <Stack.Screen name="ShareChooser" component={ShareChooserScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

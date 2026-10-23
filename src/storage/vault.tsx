@@ -140,6 +140,9 @@ function normalizeUri(uri: string) {
   return /^(file|content):\/\//.test(uri) ? uri : "file://" + uri;
 }
 
+import { unlinkFile } from "../capture/match";
+export { unlinkFile };
+
 async function clearTempFiles() {
   try {
     await FileSystem.deleteAsync(SHARE_DIR, { idempotent: true });
@@ -171,7 +174,8 @@ type Ctx = {
   createFolder: (name: string, parentId: string | null, color: string) => Promise<Folder>;
   updateFolder: (id: string, patch: Partial<Pick<Folder, "name" | "color">>) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
-  addFiles: (folderId: string, incoming: IncomingFile[]) => Promise<{ added: number; failed: string[] }>;
+  ensureFolder: (name: string, color?: string) => Promise<Folder>;
+  addFiles: (folderId: string, incoming: IncomingFile[]) => Promise<{ added: number; failed: string[]; files: VaultFile[] }>;
   renameFile: (id: string, name: string) => Promise<void>;
   updateFile: (id: string, patch: FilePatch) => Promise<void>;
   moveFile: (id: string, folderId: string) => Promise<void>;
@@ -263,15 +267,31 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         }
       }
       const gone = cur.files.filter((f) => doomed.has(f.folderId));
+      const goneIds = gone.map((f) => f.id);
       await Promise.all(gone.map((f) => FileSystem.deleteAsync(FILES_DIR + f.storedAs, { idempotent: true })));
       return {
         next: {
           ...cur,
           folders: cur.folders.filter((f) => !doomed.has(f.id)),
           files: cur.files.filter((f) => !doomed.has(f.folderId)),
+          reminders: unlinkFile(cur.reminders, goneIds),
         },
         result: undefined,
       };
+    });
+
+  const ensureFolder: Ctx["ensureFolder"] = (name, color = "#2F8FD0") =>
+    mutate(async (cur) => {
+      const match = cur.folders.find((f) => f.parentId === null && f.name.toLowerCase() === name.trim().toLowerCase());
+      if (match) return { next: cur, result: match };
+      const folder: Folder = {
+        id: uid(),
+        name: name.trim(),
+        parentId: null,
+        color,
+        createdAt: Date.now(),
+      };
+      return { next: { ...cur, folders: [...cur.folders, folder] }, result: folder };
     });
 
   const addFiles: Ctx["addFiles"] = (folderId, incoming) =>
@@ -308,7 +328,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           failed.push(item.name);
         }
       }
-      return { next: { ...cur, files: [...cur.files, ...added] }, result: { added: added.length, failed } };
+      return { next: { ...cur, files: [...cur.files, ...added] }, result: { added: added.length, failed, files: added } };
     });
 
   const createReminder: Ctx["createReminder"] = (input) =>
@@ -328,6 +348,10 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           if (!n.note?.trim()) delete n.note;
           if (!n.doneThrough) delete n.doneThrough;
           if (!n.snoozeUntil) delete n.snoozeUntil;
+          if (!n.reference?.trim()) delete n.reference;
+          if (!n.fileId) delete n.fileId;
+          if (!n.category) delete n.category;
+          if (n.amountValue == null || isNaN(n.amountValue)) delete n.amountValue;
           return n;
         }),
       },
@@ -383,7 +407,14 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     mutate(async (cur) => {
       const f = cur.files.find((x) => x.id === id);
       if (f) await FileSystem.deleteAsync(FILES_DIR + f.storedAs, { idempotent: true });
-      return { next: { ...cur, files: cur.files.filter((x) => x.id !== id) }, result: undefined };
+      return {
+        next: {
+          ...cur,
+          files: cur.files.filter((x) => x.id !== id),
+          reminders: unlinkFile(cur.reminders, [id]),
+        },
+        result: undefined,
+      };
     });
 
   const fileUri = useCallback((f: VaultFile) => FILES_DIR + f.storedAs, []);
@@ -486,6 +517,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     createFolder,
     updateFolder,
     deleteFolder,
+    ensureFolder,
     addFiles,
     renameFile,
     updateFile,

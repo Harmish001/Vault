@@ -1,3 +1,15 @@
+import type { BillParseResult } from "./capture/parseBill";
+import type { CaptureSource } from "./types";
+
+export type CaptureDraft = {
+  result?: BillParseResult;
+  source: CaptureSource;
+  sourceText?: string;
+  imageUris?: string[];
+  originalName?: string;
+  originalSize?: number;
+};
+
 export type RootStackParamList = {
   Home: undefined;
   Folder: { id: string };
@@ -6,5 +18,6 @@ export type RootStackParamList = {
   Scan: { folderId?: string } | undefined;
   FileDetails: { fileId: string };
   Reminders: undefined;
-  ReminderEdit: { id?: string } | undefined;
+  ReminderEdit: { id?: string; draft?: CaptureDraft } | undefined;
+  ShareChooser: undefined;
 };

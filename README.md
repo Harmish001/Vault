@@ -11,6 +11,7 @@ Keep your family's important documents (Aadhaar, PAN, passports, certificates, p
 - **Read details from scans (OCR):** after a scan, DocVault reads the pages on the phone, finds Aadhaar, PAN, passport, driving licence, voter ID and vehicle registration numbers plus expiry dates (and policy/account numbers on bills), and shows a review form so you confirm what gets saved
 - **Reminders for anything:** subscriptions, bills, premiums, rent. One-time, monthly or yearly; amount and note; notify on the day and/or days before; **Snooze** and **Done** buttons on the notification
 - **Encrypted details:** folder and file names, tags, notes, saved numbers and reminders are stored encrypted (AES-256-GCM) with a key kept in the phone's secure storage
+- **Capture to Reminder (v1.4.0):** share an SMS, WhatsApp message, email body, or screenshot of a bill directly into DocVault. On-device OCR reads the biller, amount, due date, category and reference number, pre-filling a reminder to confirm in one tap. Optionally keeps the bill in your `Bills` folder.
 - Search across folder names, file names, tags, notes and saved details
 - Fingerprint / face / phone-PIN lock, screenshots blocked, no internet permission
 - Backup file export and restore (optional AES-256 password)
@@ -157,3 +158,9 @@ Everything lives in the app's private storage under `vault/`: `index.json` plus 
 10. Reminders (bell icon): add "Netflix", ₹499, monthly, notify 1 day before and on the day. Add one for tomorrow, wait for the notification, press **Snooze** and then **Done** on the next one.
 11. Update an older install from the previous APK: all folders and files should still be there (the index is migrated to encrypted storage).
 12. Scan for longer than a minute: you should *not* be asked to unlock when you come back from the scanner.
+13. **Share text to reminder:** Share an SMS/WhatsApp text with bill details to DocVault. Share Chooser opens → tap **Create a reminder** → pre-filled details appear with confidence indicators → confirm and save.
+14. **Share screenshot / photo of bill:** Share an image of an electricity or broadband bill → Share Chooser shows image preview → tap **Create a reminder** → OCR reads the bill with a non-blocking shimmer → confirms title, amount and due date → **Keep the bill** saves it to `Bills/` and links to the reminder (shows paperclip).
+15. **Smart match duplicate:** Share the same monthly bill again: a duplicate sheet appears offering to **Update it with this bill**.
+16. **Scan a bill:** From Reminders screen tap **Scan a bill** → capture up to 3 pages → pre-filled review form appears.
+17. **Paste from clipboard:** In New Reminder tap **Paste from clipboard** → pre-fills fields in place.
+

@@ -44,3 +44,4 @@ yarn-error.*
 *.jks
 *.keystore
 !debug.keystore
+.agents

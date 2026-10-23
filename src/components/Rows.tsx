@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
+import * as Clipboard from "expo-clipboard";
 import { colors, fonts, radius } from "../theme";
 import { Folder, VaultFile } from "../types";
 import { dueInfo, expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../utils";
@@ -62,14 +63,102 @@ export function FileRow(props: {
   onMenu: () => void;
 }) {
   const f = props.file;
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const hasFields = Boolean(f.fields && f.fields.length > 0);
+  const primaryField = hasFields ? f.fields![0] : null;
+  const isPrimaryCopied =
+    copiedId === "primary" || (primaryField !== null && copiedId === primaryField.id);
+
+  async function copyValue(id: string, text: string) {
+    await Clipboard.setStringAsync(text);
+    setCopiedId(id);
+    setTimeout(() => {
+      setCopiedId((curr) => (curr === id ? null : curr));
+    }, 1500);
+  }
+
   return (
     <Pressable onPress={props.onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "#ECEFFA" }]}>
       <FileThumb name={f.name} mime={f.mime} uri={props.uri} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.rowTitle} numberOfLines={1}>{f.name}</Text>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={styles.titleRow}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
+            {f.name}
+          </Text>
+          {primaryField ? (
+            <Pressable
+              onPress={(e) => {
+                e?.stopPropagation?.();
+                copyValue("primary", primaryField.value);
+              }}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.inlineCopyBtn,
+                isPrimaryCopied && styles.inlineCopyBtnCopied,
+                pressed && { opacity: 0.75 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Copy ${primaryField.label}`}
+            >
+              <Feather
+                name={isPrimaryCopied ? "check" : "copy"}
+                size={12}
+                color={isPrimaryCopied ? "#FFFFFF" : colors.primary}
+              />
+              <Text
+                style={[
+                  styles.inlineCopyText,
+                  isPrimaryCopied && styles.inlineCopyTextCopied,
+                ]}
+              >
+                {isPrimaryCopied ? "Copied ✓" : "Copy"}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={styles.rowSub} numberOfLines={1}>
           {props.subtitle ? props.subtitle + "  •  " : ""}{formatBytes(f.size)}  •  {formatDate(f.addedAt)}
         </Text>
+        {hasFields ? (
+          <View style={styles.fieldsContainer}>
+            {f.fields!.map((field) => {
+              const isFieldCopied =
+                copiedId === field.id || (copiedId === "primary" && field.id === primaryField?.id);
+              return (
+                <Pressable
+                  key={field.id}
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    copyValue(field.id, field.value);
+                  }}
+                  hitSlop={6}
+                  style={({ pressed }) => [
+                    styles.fieldChip,
+                    isFieldCopied && styles.fieldChipCopied,
+                    pressed && { opacity: 0.75 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Copy ${field.label}: ${field.value}`}
+                >
+                  <Feather
+                    name={isFieldCopied ? "check" : "copy"}
+                    size={11}
+                    color={isFieldCopied ? "#FFFFFF" : colors.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.fieldChipText,
+                      isFieldCopied && styles.fieldChipTextCopied,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {isFieldCopied ? `${field.label}: Copied ✓` : `${field.label}: ${field.value}`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         {f.expiresOn || f.tags?.length ? (
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 5 }}>
             {f.expiresOn ? <ExpiryBadge iso={f.expiresOn} /> : null}
@@ -127,7 +216,67 @@ export function FolderRow(props: { folder: Folder; detail: string; onPress: () =
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.md },
-  rowTitle: { fontFamily: fonts.semibold, fontSize: 16, color: colors.ink },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  rowTitle: { fontFamily: fonts.semibold, fontSize: 16, color: colors.ink, flexShrink: 1 },
+  inlineCopyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: colors.primary + "14",
+    borderWidth: 1,
+    borderColor: colors.primary + "30",
+  },
+  inlineCopyBtnCopied: {
+    backgroundColor: "#16A34A",
+    borderColor: "#16A34A",
+  },
+  inlineCopyText: {
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    color: colors.primary,
+  },
+  inlineCopyTextCopied: {
+    color: "#FFFFFF",
+  },
+  fieldsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 6,
+  },
+  fieldChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "#ECEFFA",
+    borderWidth: 1,
+    borderColor: colors.line,
+    maxWidth: "100%",
+  },
+  fieldChipCopied: {
+    backgroundColor: "#16A34A",
+    borderColor: "#16A34A",
+  },
+  fieldChipText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.ink,
+  },
+  fieldChipTextCopied: {
+    color: "#FFFFFF",
+    fontFamily: fonts.semibold,
+  },
   tag: { fontFamily: fonts.medium, fontSize: 12, color: colors.primary },
   rowSub: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, marginTop: 2 },
   menuBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },

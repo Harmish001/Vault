@@ -1,6 +1,6 @@
 {
   "name": "docvault",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -9,7 +9,7 @@
     "prebuild": "expo prebuild --platform android --no-install",
     "build:apk": "expo prebuild --platform android --no-install && cd android && ./gradlew assembleRelease",
     "postinstall": "patch-package",
-    "test": "npx --yes tsx scripts/test-scan.ts && npx --yes tsx scripts/test-reminders.ts && npx --yes tsx scripts/test-crypto.ts && npx --yes tsx scripts/test-ocr.ts",
+    "test": "npx --yes tsx scripts/test-scan.ts && npx --yes tsx scripts/test-reminders.ts && npx --yes tsx scripts/test-crypto.ts && npx --yes tsx scripts/test-ocr.ts && npx --yes tsx scripts/test-capture.ts",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },
