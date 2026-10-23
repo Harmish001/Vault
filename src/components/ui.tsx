@@ -178,6 +178,7 @@ export function PromptModal(props: {
   allowEmpty?: boolean;
   hint?: string;
   multiline?: boolean;
+  suggestions?: string[];
   withColor?: boolean;
   initialColor?: string;
   onCancel: () => void;
@@ -209,6 +210,15 @@ export function PromptModal(props: {
         selectTextOnFocus
       />
       {props.hint ? <Text style={styles.hint}>{props.hint}</Text> : null}
+      {props.suggestions?.length && !value.trim() ? (
+        <View style={styles.swatches}>
+          {props.suggestions.map((sg) => (
+            <Pressable key={sg} onPress={() => setValue(sg)} accessibilityRole="button" style={styles.suggest}>
+              <Text style={styles.suggestText}>{sg}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {props.withColor ? (
         <View style={styles.swatches}>
           {folderColors.map((c) => (
@@ -298,6 +308,8 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   hint: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, marginTop: 8, lineHeight: 18 },
+  suggest: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line },
+  suggestText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.primary },
   swatches: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 16 },
   swatch: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   swatchOn: { borderWidth: 3, borderColor: "#fff", elevation: 3, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 3 },

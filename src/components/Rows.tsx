@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import { colors, fonts, radius } from "../theme";
 import { Folder, VaultFile } from "../types";
-import { expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../utils";
+import { dueInfo, expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../utils";
 
 const KIND_STYLE = {
   image: { bg: "#E3F1FB", fg: "#2F8FD0" },
@@ -36,6 +36,16 @@ const TONE = {
 
 export function ExpiryBadge({ iso }: { iso: string }) {
   const e = expiryInfo(iso);
+  const t = TONE[e.tone];
+  return (
+    <View style={{ alignSelf: "flex-start", backgroundColor: t.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+      <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: t.fg }}>{e.label}</Text>
+    </View>
+  );
+}
+
+export function DueBadge({ iso }: { iso: string }) {
+  const e = dueInfo(iso);
   const t = TONE[e.tone];
   return (
     <View style={{ alignSelf: "flex-start", backgroundColor: t.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>

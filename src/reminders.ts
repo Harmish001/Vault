@@ -1,8 +1,10 @@
 import * as Notifications from "expo-notifications";
-import { PlannedReminder, ReminderEntry, planReminders } from "./reminders-plan";
-import { Settings } from "./types";
+import { PlannedCustom, PlannedReminder, ReminderEntry, planCustomReminders, planReminders } from "./reminders-plan";
+import { Reminder, Settings } from "./types";
 
 const CHANNEL = "expiry";
+const CATEGORY = "reminder";
+const MAX_SCHEDULED = 100;
 
 /** Call once at startup: lets reminders appear even while the app is open. */
 export function configureNotifications() {
@@ -16,9 +18,18 @@ export function configureNotifications() {
   });
 }
 
+async function ensureCategory() {
+  // Buttons on reminder notifications. They open the app (behind the unlock) because
+  // changing saved data silently in the background would bypass the lock.
+  await Notifications.setNotificationCategoryAsync(CATEGORY, [
+    { identifier: "snooze", buttonTitle: "Snooze 1 day", options: { opensAppToForeground: true } },
+    { identifier: "done", buttonTitle: "Done", options: { opensAppToForeground: true } },
+  ]);
+}
+
 async function ensureChannel() {
   await Notifications.setNotificationChannelAsync(CHANNEL, {
-    name: "Document expiry",
+    name: "Reminders and document expiry",
     importance: Notifications.AndroidImportance.HIGH,
     // PRIVATE: on the lock screen Android can hide the text until the phone is unlocked
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
@@ -49,18 +60,43 @@ function content(r: PlannedReminder, showNames: boolean) {
   };
 }
 
+function customContent(r: PlannedCustom, showNames: boolean) {
+  const rem = r.reminder;
+  const money = rem.amount?.trim();
+  const when = r.snoozed ? "snoozed reminder" : r.offset === 0 ? "due today" : r.offset === 1 ? "due tomorrow" : `due in ${r.offset} days`;
+  const note = rem.note?.trim().replace(/\s+/g, " ");
+  return {
+    title: showNames ? rem.title : "A reminder is due",
+    body: showNames ? [money, when, note && note.length > 70 ? note.slice(0, 67) + "…" : note].filter(Boolean).join(" · ") : "Open DocVault to see details.",
+    data: { reminderId: rem.id, occurrence: r.occurrence },
+    categoryIdentifier: CATEGORY,
+  };
+}
+
+type Note = { fireAt: Date; content: Notifications.NotificationContentInput };
+
 let chain: Promise<unknown> = Promise.resolve();
 
 /** Rebuilds every scheduled reminder from the current files. Safe to call often. */
-export function syncReminders(entries: ReminderEntry[], settings: Settings): Promise<void> {
+export function syncReminders(entries: ReminderEntry[], reminders: Reminder[], settings: Settings): Promise<void> {
   const run = chain.then(async () => {
     await ensureChannel();
+    await ensureCategory();
     await Notifications.cancelAllScheduledNotificationsAsync();
     if (!settings.remindersEnabled || !(await hasReminderPermission())) return;
-    for (const r of planReminders(entries, settings.remindOffsets)) {
-      await Notifications.scheduleNotificationAsync({
+    const notes: Note[] = [
+      ...planReminders(entries, settings.remindOffsets, new Date(), MAX_SCHEDULED).map((r) => ({
+        fireAt: r.fireAt,
         content: content(r, settings.notifyNames),
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: r.fireAt, channelId: CHANNEL },
+      })),
+      ...planCustomReminders(reminders).map((r) => ({ fireAt: r.fireAt, content: customContent(r, settings.notifyNames) })),
+    ]
+      .sort((a, b) => a.fireAt.getTime() - b.fireAt.getTime())
+      .slice(0, MAX_SCHEDULED); // soonest first; the rest are scheduled on a later app start
+    for (const n of notes) {
+      await Notifications.scheduleNotificationAsync({
+        content: n.content,
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: n.fireAt, channelId: CHANNEL },
       });
     }
   });

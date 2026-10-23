@@ -161,3 +161,13 @@ export function fileSearchText(f: VaultFile): string {
     .join(" ")
     .toLowerCase();
 }
+
+/** Label and urgency for something that is due (a bill, a renewal), as opposed to a document that expires. */
+export function dueInfo(iso: string, now: Date = new Date()): { label: string; tone: ExpiryTone; days: number } {
+  const days = daysUntil(iso, now);
+  if (days < 0) return { days, tone: "expired", label: `Overdue by ${plural(-days, "day")}` };
+  if (days === 0) return { days, tone: "soon", label: "Due today" };
+  if (days === 1) return { days, tone: "soon", label: "Due tomorrow" };
+  if (days <= 7) return { days, tone: "soon", label: `Due in ${days} days` };
+  return { days, tone: "ok", label: `Due ${formatDate(parseISODate(iso).getTime())}` };
+}

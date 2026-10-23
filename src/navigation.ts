@@ -5,4 +5,6 @@ export type RootStackParamList = {
   Save: undefined;
   Scan: { folderId?: string } | undefined;
   FileDetails: { fileId: string };
+  Reminders: undefined;
+  ReminderEdit: { id?: string } | undefined;
 };

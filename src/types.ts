@@ -24,10 +24,33 @@ export type VaultFile = {
   fields?: FileField[];
 };
 
+export type Repeat = "none" | "monthly" | "yearly";
+
+export type Reminder = {
+  id: string;
+  title: string;
+  /** first (or only) due date, YYYY-MM-DD */
+  dueOn: string;
+  /** local time of day, HH:MM */
+  time: string;
+  repeat: Repeat;
+  /** days before the due date to notify; 0 = on the day */
+  offsets: number[];
+  amount?: string;
+  note?: string;
+  /** the cycle on or before this date has been marked done (YYYY-MM-DD) */
+  doneThrough?: string;
+  /** snoozed: notify again at this time (epoch ms) */
+  snoozeUntil?: number;
+  createdAt: number;
+};
+
 export type VaultIndex = {
   version: 1;
   folders: Folder[];
   files: VaultFile[];
+  /** absent in indexes written before reminders existed */
+  reminders?: Reminder[];
 };
 
 export type IncomingFile = {
@@ -35,6 +58,8 @@ export type IncomingFile = {
   name: string;
   mime?: string | null;
   size?: number | null;
+  /** details to attach to the new file in the same save (from the scan review form) */
+  meta?: { fields?: FileField[]; tags?: string[]; expiresOn?: string; notes?: string };
 };
 
 export type Settings = {
@@ -45,6 +70,8 @@ export type Settings = {
   /** days before expiry to notify; 0 = on the day itself */
   remindOffsets: number[];
   notifyNames: boolean;
+  /** read numbers and dates from scans on the phone */
+  ocrEnabled: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -54,4 +81,5 @@ export const DEFAULT_SETTINGS: Settings = {
   remindersEnabled: true,
   remindOffsets: [60, 30, 7, 0],
   notifyNames: true,
+  ocrEnabled: true,
 };

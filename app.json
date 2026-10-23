@@ -2,7 +2,7 @@
   "expo": {
     "name": "DocVault",
     "slug": "docvault",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "docvault",
@@ -13,7 +13,7 @@
     ],
     "android": {
       "package": "com.docvault.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "allowBackup": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -72,7 +72,8 @@
         }
       ],
       "./plugins/withReleaseSigning",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-secure-store"
     ]
   }
 }

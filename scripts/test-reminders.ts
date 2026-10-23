@@ -1,5 +1,6 @@
 // Run with: npm test   (date maths and reminder planning, no phone needed)
-import { planReminders } from "../src/reminders-plan";
+import { nextDue, occurrenceDates, planCustomReminders, planReminders } from "../src/reminders-plan";
+import type { Reminder } from "../src/types";
 import { addYears, daysUntil, expiryInfo, fileSearchText, maskValue, parseISODate, toISODate } from "../src/utils";
 
 const assert = (ok: boolean, msg: string) => {
@@ -44,4 +45,27 @@ assert(planReminders(entries, [60, 30, 7, 0], now, 3).length === 3, "cap respect
 
 const txt = fileSearchText({ id: "x", folderId: "f", name: "Dad Passport", mime: "", size: 0, storedAs: "", addedAt: 0, tags: ["Travel"], notes: "Locker 2", fields: [{ id: "1", label: "Document number", value: "P1234567" }] });
 assert(txt.includes("travel") && txt.includes("locker") && txt.includes("p1234567") && txt.includes("document number"), "search covers tags, notes, details");
+
+// ---- standalone reminders
+const base: Reminder = { id: "r", title: "Netflix", dueOn: "2026-01-31", time: "08:30", repeat: "monthly", offsets: [1, 0], amount: "₹499", createdAt: 0 };
+assert(occurrenceDates(base, now, 4).join(",") === "2026-10-31,2026-11-30,2026-12-31,2027-01-31", "monthly on the 31st clamps to month end and recovers");
+assert(occurrenceDates({ ...base, dueOn: "2026-10-22" }, now, 2).join(",") === "2026-10-22,2026-11-22", "an occurrence today still counts");
+assert(occurrenceDates({ ...base, repeat: "yearly", dueOn: "2024-02-29" }, now, 3).join(",") === "2027-02-28,2028-02-29,2029-02-28", "yearly on 29 Feb clamps in non-leap years");
+assert(occurrenceDates({ ...base, repeat: "none", dueOn: "2026-12-01" }, now, 3).join(",") === "2026-12-01", "one-off has a single date");
+assert(occurrenceDates({ ...base, repeat: "none", dueOn: "2026-09-01" }, now, 3).length === 0, "past one-off has no future dates");
+assert(nextDue({ ...base, repeat: "none", dueOn: "2026-09-01" }, now) === "2026-09-01", "unfinished past one-off is shown as overdue");
+assert(nextDue({ ...base, repeat: "none", dueOn: "2026-09-01", doneThrough: "2026-09-01" }, now) === null, "finished one-off disappears");
+const doneOct = { ...base, doneThrough: "2026-10-31" };
+assert(occurrenceDates(doneOct, now, 2).join(",") === "2026-11-30,2026-12-31", "marking a cycle done skips it and keeps the next one");
+const far = { ...base, dueOn: "2020-03-15" };
+assert(occurrenceDates(far, now, 1)[0] === "2026-11-15", "long-running subscription jumps to the right cycle");
+
+const plan2 = planCustomReminders([{ ...base, dueOn: "2026-10-23", offsets: [1, 0] }], now);
+const firstTwo = plan2.slice(0, 2).map((p) => `${toISODate(p.fireAt)} ${p.fireAt.getHours()}:${String(p.fireAt.getMinutes()).padStart(2, "0")} o${p.offset}`);
+assert(firstTwo.join(" | ") === "2026-10-23 8:30 o0 | 2026-11-22 8:30 o1", "the lead-day notification already passed, the due-day one is next");
+assert(plan2.length === 23, "twelve monthly cycles x two notifications, minus the lead notification that already passed");
+assert(planCustomReminders([doneOct], now).every((p) => p.occurrence !== "2026-10-31"), "done cycle has no notifications");
+const snoozed = planCustomReminders([{ ...base, repeat: "none", dueOn: "2026-12-01", snoozeUntil: new Date(2026, 9, 23, 8, 30).getTime() }], now);
+assert(snoozed[0].snoozed && toISODate(snoozed[0].fireAt) === "2026-10-23", "snooze adds one extra notification");
+assert(planCustomReminders([{ ...base, offsets: [] }], now).length > 0, "empty offsets fall back to the due day");
 console.log("all reminder tests passed");

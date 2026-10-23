@@ -8,13 +8,14 @@ import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
 import { colors, folderColors, fonts, radius } from "../theme";
 import { countInside, daysUntil, expiryInfo, fileSearchText, folderPath, plural } from "../utils";
+import { nextDue } from "../reminders-plan";
 import { openFile } from "../openFile";
-import { ExpiryBadge, FileRow, FolderRow, FolderTile } from "../components/Rows";
+import { DueBadge, ExpiryBadge, FileRow, FolderRow, FolderTile } from "../components/Rows";
 import { useFileActions, useFolderActions } from "../components/actions";
 import { Button, EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
 
 export default function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
-  const { folders, files, createFolder, fileUri } = useVault();
+  const { folders, files, reminders, createFolder, fileUri } = useVault();
   const { noDeviceLock } = useLock();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -26,6 +27,14 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
     () => folders.filter((f) => f.parentId === null).sort((a, b) => a.name.localeCompare(b.name)),
     [folders]
   );
+  // Reminders due within a week (or overdue)
+  const dueSoon = useMemo(() => {
+    const now = new Date();
+    return reminders
+      .map((r) => ({ r, due: nextDue(r, now) }))
+      .filter((x) => x.due && daysUntil(x.due) <= 7)
+      .sort((a, b) => (a.due as string).localeCompare(b.due as string));
+  }, [reminders]);
   const q = query.trim().toLowerCase();
   const folderHits = q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : [];
   const fileHits = q ? files.filter((f) => fileSearchText(f).includes(q)) : [];
@@ -53,7 +62,12 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
       <ScreenHeader
         title="DocVault"
         left={<Image source={require("../../assets/logo-mark.png")} style={{ width: 40, height: 40, borderRadius: 10 }} />}
-        right={<IconButton icon="settings" label="Settings" onPress={() => navigation.navigate("Settings")} />}
+        right={
+          <>
+            <IconButton icon="bell" label="Reminders" onPress={() => navigation.navigate("Reminders")} />
+            <IconButton icon="settings" label="Settings" onPress={() => navigation.navigate("Settings")} />
+          </>
+        }
       />
       <ScrollView
         keyboardShouldPersistTaps="handled"
@@ -117,9 +131,24 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
           />
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 16, paddingTop: 6 }}>
-            {attention.length ? (
+            {attention.length || dueSoon.length ? (
               <View style={styles.attention}>
                 <Text style={styles.attentionTitle}>Needs attention</Text>
+                {dueSoon.slice(0, 3).map(({ r, due }) => (
+                  <Pressable
+                    key={r.id}
+                    onPress={() => navigation.navigate("Reminders")}
+                    style={styles.attentionRow}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${r.title} reminder`}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.attentionName} numberOfLines={1}>{r.title}</Text>
+                      <Text style={styles.attentionSub} numberOfLines={1}>{[r.amount?.trim(), "Reminder"].filter(Boolean).join("  •  ")}</Text>
+                    </View>
+                    <DueBadge iso={due as string} />
+                  </Pressable>
+                ))}
                 {attention.slice(0, 5).map((f) => {
                   const e = expiryInfo(f.expiresOn as string);
                   return (

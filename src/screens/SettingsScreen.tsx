@@ -120,10 +120,18 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
           />
         </Section>
 
+        <Section title="Scanner">
+          <Row
+            title="Read details from scans"
+            body="After a scan, find document numbers and expiry dates on the phone and offer to save them. Nothing is uploaded."
+            right={<Switch value={settings.ocrEnabled} onValueChange={(v) => update({ ocrEnabled: v })} trackColor={{ true: colors.primary }} />}
+          />
+        </Section>
+
         <Section title="Reminders">
           <Row
-            title="Expiry reminders"
-            body="A notification at 9:00 AM before a document's expiry date."
+            title="Notifications"
+            body="Show notifications for your reminders and for document expiry dates."
             right={
               <Switch
                 value={settings.remindersEnabled}
@@ -144,7 +152,7 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
           {settings.remindersEnabled ? (
             <>
               <View style={styles.block}>
-                <Text style={styles.rowTitle}>Remind me</Text>
+                <Text style={styles.rowTitle}>Remind me before a document expires</Text>
                 <View style={styles.pills}>
                   {OFFSET_OPTIONS.map((o) => {
                     const on = settings.remindOffsets.includes(o.d);
