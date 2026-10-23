@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: radius.md,
-    backgroundColor: "#E6EAFB",
+    backgroundColor: "#ECFDF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -234,8 +234,8 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   actionCardPrimary: {
-    backgroundColor: "#F2F5FE",
-    borderColor: "#C7D5F7",
+    backgroundColor: "#ECFDF5",
+    borderColor: "#A7F3D0",
   },
   actionCardDisabled: {
     opacity: 0.6,
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   actionIconWrapPrimary: {
-    backgroundColor: "#DCE5FB",
+    backgroundColor: "#D1FAE5",
   },
   actionTextWrap: {
     flex: 1,
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   disabledHelper: {
     fontFamily: fonts.body,
     fontSize: 12,
-    color: "#B45309",
+    color: "#475569",
     marginTop: 4,
   },
 });

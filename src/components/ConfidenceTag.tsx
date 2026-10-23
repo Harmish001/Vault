@@ -22,7 +22,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   pillCheck: {
-    backgroundColor: "#FFF1D6",
+    backgroundColor: "#F1F5F9",
   },
   pillNeeded: {
     backgroundColor: "#FEE2E2",
@@ -32,7 +32,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   textCheck: {
-    color: "#B45309", // amber-700
+    color: "#334155", // slate-700
   },
   textNeeded: {
     color: "#DC2626", // red-600

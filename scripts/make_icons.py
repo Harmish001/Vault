@@ -1,69 +1,223 @@
-"""Generates all DocVault launcher/splash artwork. Run: python3 scripts/make_icons.py"""
-from PIL import Image, ImageDraw, ImageChops
+"""
+Generates all DocVault launcher, adaptive, and splash artwork.
+Bespoke brand redesign: Alpine Forest Emerald & Brushed Platinum Vault-Shield.
+Master designer aesthetic: Zero blue, zero orange. Pure timeless luxury & security.
+Run: python scripts/make_icons.py
+"""
+import math
 import os
+from PIL import Image, ImageDraw, ImageFilter, ImageChops
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "assets")
-SS = 2                      # supersampling
-N = 1024 * SS
-NAVY, BLUE, GOLD = (27, 40, 116), (42, 59, 168), (242, 163, 58)
-PAPER, PAPER_LINE, WHITE = (232, 236, 255), (190, 198, 235), (255, 255, 255)
+os.makedirs(OUT, exist_ok=True)
 
-def T(scale):
-    c = 512
-    return lambda v: (c + (v - c) * scale) * SS
+SS = 2  # Supersampling factor for razor-sharp anti-aliased rendering
+W = 1024 * SS
+H = 1024 * SS
 
-def rr(d, box, r, fill, t):
-    x0, y0, x1, y1 = [t(v) for v in box]
-    d.rounded_rectangle([x0, y0, x1, y1], radius=r * (t(1) - t(0)), fill=fill)
+# Brand Color Palette: Alpine Forest Emerald & Brushed Platinum
+EMERALD_OBSIDIAN = (4, 30, 24)       # #041E18 Deep Forest Obsidian
+EMERALD_DEEP     = (6, 78, 59)       # #064E3B Rich Forest Emerald
+EMERALD_MID      = (4, 120, 87)      # #047857 Alpine Emerald
+EMERALD_VIBRANT  = (16, 185, 129)    # #10B981 Luminous Mint Emerald
 
-def folder(d, t, mono=False):
-    back = WHITE if mono else GOLD
-    rr(d, (232, 280, 462, 430), 40, back, t)            # tab
-    rr(d, (232, 330, 792, 760), 56, back, t)            # back panel
-    if not mono:
-        rr(d, (296, 292, 728, 640), 26, PAPER, t)       # sheet peeking out
-        rr(d, (344, 346, 560, 366), 10, PAPER_LINE, t)
-        rr(d, (344, 392, 640, 412), 10, PAPER_LINE, t)
-    rr(d, (232, 452, 792, 760), 56, WHITE, t)           # front panel
+PLATINUM_BRIGHT  = (248, 250, 252)   # #F8FAFC Crisp Platinum
+PLATINUM_MID     = (226, 232, 240)   # #E2E8F0 Brushed Platinum
+PLATINUM_SHADOW  = (148, 163, 184)   # #94A3B8 Polished Titanium
+PLATINUM_DARK    = (100, 116, 139)   # #64748B Shadowed Steel
 
-def keyhole(d, t, color):
-    cx, cy, r = 512, 568, 40
-    d.ellipse([t(cx - r), t(cy - r), t(cx + r), t(cy + r)], fill=color)
-    d.polygon([(t(490), t(590)), (t(534), t(590)), (t(552), t(676)), (t(472), t(676))], fill=color)
+WHITE            = (255, 255, 255)
+OFFWHITE         = (241, 245, 249)
 
-def layer(scale, mono=False):
-    img = Image.new("RGBA", (N, N), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img); t = T(scale)
-    folder(d, t, mono)
+
+def create_emerald_gradient():
+    """Luminous radial-linear gradient from rich alpine emerald to deep forest obsidian."""
+    base = Image.new("RGBA", (W, H))
+    px = base.load()
+    cx, cy = W * 0.38, H * 0.32
+    max_d = math.hypot(W * 0.72, H * 0.72)
+
+    for y in range(H):
+        for x in range(W):
+            d = math.hypot(x - cx, y - cy) / max_d
+            d = min(1.0, max(0.0, d))
+            # Smooth ease curve
+            t = d * d * (3 - 2 * d)
+            r = int(EMERALD_DEEP[0] * (1 - t) + EMERALD_OBSIDIAN[0] * t)
+            g = int(EMERALD_DEEP[1] * (1 - t) + EMERALD_OBSIDIAN[1] * t)
+            b = int(EMERALD_DEEP[2] * (1 - t) + EMERALD_OBSIDIAN[2] * t)
+            px[x, y] = (r, g, b, 255)
+    return base
+
+
+def draw_vault_shield_mark(scale=1.0, mono=False):
+    """
+    Renders the iconic geometric Vault-Shield:
+    A precision shield contour + document corner fold + interlocking brushed platinum vault core.
+    """
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    cx, cy = W / 2, H / 2
+    def p(x, y):
+        return (cx + (x - 512) * scale * SS, cy + (y - 512) * scale * SS)
+
+    # Coordinates in 1024 unit space
+    outer_shield = [
+        p(512, 170), # Top center apex
+        p(780, 245), # Top right corner
+        p(780, 560), # Right side inflection
+        p(512, 860), # Bottom center point
+        p(244, 560), # Left side inflection
+        p(244, 245), # Top left corner
+    ]
+
+    # Shield Inner Boundary (Brushed Platinum Inlay)
+    trim_shield = [
+        p(512, 215),
+        p(745, 280),
+        p(745, 545),
+        p(512, 810),
+        p(279, 545),
+        p(279, 280),
+    ]
+
+    # Document Surface
+    doc_body = [
+        p(330, 310), # Top left of document
+        p(630, 310), # Top fold start
+        p(710, 390), # Fold right edge
+        p(710, 680), # Lower right
+        p(512, 770), # Lower point
+        p(330, 680), # Lower left
+    ]
+
+    # Document Fold Corner
+    doc_fold = [
+        p(630, 310),
+        p(710, 390),
+        p(630, 390),
+    ]
+
     if mono:
-        hole = Image.new("L", (N, N), 0); keyhole(ImageDraw.Draw(hole), t, 255)
-        a = img.getchannel("A"); img.putalpha(ImageChops.subtract(a, hole))
-    else:
-        keyhole(d, t, BLUE)
+        # Monochrome stencil silhouette for Android 13+ themed icons
+        d.polygon(outer_shield, fill=WHITE)
+        cutout = Image.new("L", (W, H), 0)
+        cd = ImageDraw.Draw(cutout)
+        cd.polygon(trim_shield, fill=255)
+        cd.polygon(doc_body, fill=0)
+        cd.polygon(doc_fold, fill=255)
+        # Vault Monogram "V" in cutout
+        v_poly = [p(400, 440), p(512, 650), p(624, 440), p(570, 440), p(512, 550), p(454, 440)]
+        cd.polygon(v_poly, fill=255)
+        cr = 34 * scale * SS
+        cd.ellipse([cx - cr, p(512, 500)[1] - cr, cx + cr, p(512, 500)[1] + cr], fill=0)
+
+        alpha = img.getchannel("A")
+        alpha = ImageChops.subtract(alpha, cutout)
+        img.putalpha(alpha)
+        return img
+
+    # 1. Subtle drop shadow under shield
+    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    shadow_poly = [(x, y + 16 * scale * SS) for (x, y) in outer_shield]
+    sd.polygon(shadow_poly, fill=(2, 18, 14, 130))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=28 * scale * SS))
+    img = Image.alpha_composite(shadow, img)
+    d = ImageDraw.Draw(img)
+
+    # 2. Outer Shield (Faceted 3D emerald bevels)
+    left_shield = [outer_shield[0], outer_shield[5], outer_shield[4], outer_shield[3]]
+    d.polygon(left_shield, fill=EMERALD_DEEP)
+    right_shield = [outer_shield[0], outer_shield[1], outer_shield[2], outer_shield[3]]
+    d.polygon(right_shield, fill=EMERALD_MID)
+
+    # 3. Brushed Platinum Trim Inlay
+    d.polygon(trim_shield, fill=PLATINUM_SHADOW)
+    right_plat = [trim_shield[0], trim_shield[1], trim_shield[2], trim_shield[3]]
+    d.polygon(right_plat, fill=PLATINUM_BRIGHT)
+
+    # 4. White Document Field with subtle split lighting
+    d.polygon(doc_body, fill=WHITE)
+    left_doc = [doc_body[0], doc_body[5], doc_body[4], p(512, 310)]
+    d.polygon(left_doc, fill=OFFWHITE)
+
+    # 5. Folded Corner (Brushed Platinum reflection)
+    d.polygon(doc_fold, fill=PLATINUM_MID)
+    d.line([doc_fold[0], doc_fold[2], doc_fold[1]], fill=PLATINUM_DARK, width=int(3 * scale * SS))
+
+    # 6. Central Vault Shield Monogram ("V" in Emerald)
+    v_left = [p(395, 430), p(450, 430), p(512, 560), p(512, 660)]
+    v_right = [p(629, 430), p(574, 430), p(512, 560), p(512, 660)]
+    d.polygon(v_left, fill=EMERALD_DEEP)
+    d.polygon(v_right, fill=EMERALD_MID)
+
+    # 7. Vault Center Seal (Brushed Titanium Dial + Emerald Core)
+    dial_cy = p(512, 490)[1]
+    r_outer = 48 * scale * SS
+    r_inner = 28 * scale * SS
+    r_core  = 16 * scale * SS
+
+    # Outer platinum rim
+    d.ellipse([cx - r_outer, dial_cy - r_outer, cx + r_outer, dial_cy + r_outer], fill=PLATINUM_DARK)
+    d.ellipse([cx - r_outer + 3, dial_cy - r_outer + 3, cx + r_outer - 3, dial_cy + r_outer - 3], fill=PLATINUM_BRIGHT)
+    # Dial track
+    d.ellipse([cx - r_inner, dial_cy - r_inner, cx + r_inner, dial_cy + r_inner], fill=PLATINUM_MID)
+    # Emerald lock core
+    d.ellipse([cx - r_core, dial_cy - r_core, cx + r_core, dial_cy + r_core], fill=EMERALD_DEEP)
+
+    # Precision vault laser ticks on the dial rim (8-axis dial)
+    tick_len = 8 * scale * SS
+    tick_w = max(2, int(2.5 * scale * SS))
+    for angle in [0, 45, 90, 135, 180, 225, 270, 315]:
+        rad = math.radians(angle)
+        x1 = cx + (r_outer - tick_len) * math.cos(rad)
+        y1 = dial_cy + (r_outer - tick_len) * math.sin(rad)
+        x2 = cx + r_outer * math.cos(rad)
+        y2 = dial_cy + r_outer * math.sin(rad)
+        d.line([x1, y1, x2, y2], fill=PLATINUM_SHADOW, width=tick_w)
+
     return img
 
-def gradient():
-    g = Image.new("RGBA", (N, N))
-    px = g.load()
-    for y in range(N):
-        for x in range(N):
-            k = (x + y) / (2 * N)
-            px[x, y] = tuple(int(NAVY[i] + (BLUE[i] - NAVY[i]) * k) for i in range(3)) + (255,)
-    return g
 
-def save(img, name, size=1024):
-    img.resize((size, size), Image.LANCZOS).save(os.path.join(OUT, name))
+def save_resized(img, filename, size=1024):
+    out_path = os.path.join(OUT, filename)
+    resized = img.resize((size, size), Image.Resampling.LANCZOS)
+    resized.save(out_path, "PNG", optimize=True)
+    print(f"Saved: {filename} ({size}x{size})")
 
-fg = layer(0.78)                                   # adaptive foreground, inside the 66% safe zone
-save(fg, "adaptive-icon.png")
-save(layer(0.78, mono=True), "adaptive-icon-mono.png")
-save(fg, "splash-icon.png")
 
-bg = Image.new("RGBA", (N, N), NAVY + (255,))      # flat fallback for tools that want a bg image
-icon = gradient(); icon.alpha_composite(layer(0.92)); save(icon, "icon.png")
+def main():
+    print("Generating bespoke Alpine Emerald & Platinum brand artwork...")
 
-mark = gradient(); mark.alpha_composite(layer(0.92))
-mask = Image.new("L", (N, N), 0)
-ImageDraw.Draw(mask).rounded_rectangle([0, 0, N, N], radius=int(N * 0.225), fill=255)
-mark.putalpha(mask); save(mark, "logo-mark.png", 512)
-print("ok")
+    # 1. Full Launcher Icon (emerald gradient background + vault emblem)
+    bg = create_emerald_gradient()
+    fg_full = draw_vault_shield_mark(scale=0.90)
+    full_icon = Image.alpha_composite(bg, fg_full)
+    save_resized(full_icon, "icon.png", 1024)
+
+    # 2. Adaptive Icon Foreground (safe within 66% circle zone)
+    adaptive_fg = draw_vault_shield_mark(scale=0.74)
+    save_resized(adaptive_fg, "adaptive-icon.png", 1024)
+
+    # 3. Monochrome Adaptive Icon (Material You theme tinting)
+    adaptive_mono = draw_vault_shield_mark(scale=0.74, mono=True)
+    save_resized(adaptive_mono, "adaptive-icon-mono.png", 1024)
+
+    # 4. Splash Screen Icon
+    splash_fg = draw_vault_shield_mark(scale=0.82)
+    save_resized(splash_fg, "splash-icon.png", 1024)
+
+    # 5. App Store / Settings Logo Mark with rounded squircle
+    mark = Image.alpha_composite(bg, draw_vault_shield_mark(scale=0.88))
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, W, H], radius=int(W * 0.225), fill=255)
+    mark.putalpha(mask)
+    save_resized(mark, "logo-mark.png", 512)
+
+    print("All artwork generated successfully!")
+
+
+if __name__ == "__main__":
+    main()

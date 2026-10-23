@@ -91,7 +91,7 @@ export function Pill(props: {
   disabled?: boolean;
 }) {
   const dark = props.tone === "dark";
-  const fg = dark ? "#fff" : colors.primaryDark;
+  const fg = "#fff";
   return (
     <Pressable
       onPress={props.onPress}

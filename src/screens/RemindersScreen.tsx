@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#E6EAFB",
+    backgroundColor: "#ECFDF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
   clipBtn: {
     padding: 8,
     borderRadius: 16,
-    backgroundColor: "#F2F5FE",
+    backgroundColor: "#ECFDF5",
   },
   check: {
     width: 42,
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "#E6EAFB",
+    backgroundColor: "#ECFDF5",
     alignItems: "center",
     justifyContent: "center",
   },

@@ -18,7 +18,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/adaptive-icon-mono.png",
-        "backgroundColor": "#1B2874"
+        "backgroundColor": "#041E18"
       },
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -39,14 +39,14 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#1B2874"
+          "backgroundColor": "#041E18"
         }
       ],
       [
         "expo-notifications",
         {
           "icon": "./assets/adaptive-icon-mono.png",
-          "color": "#2A3BA8"
+          "color": "#065F46"
         }
       ],
       [

@@ -566,7 +566,7 @@ export default function ReminderEditScreen({
         {/* OCR Error banner */}
         {readError ? (
           <View style={styles.banner}>
-            <Feather name="alert-circle" size={18} color="#B45309" />
+            <Feather name="alert-circle" size={18} color="#475569" />
             <Text style={styles.bannerText}>
               Couldn't read text on this phone right now. You can fill the details in below.
             </Text>
@@ -964,9 +964,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: "#F2F5FE",
+    backgroundColor: "#ECFDF5",
     borderWidth: 1,
-    borderColor: "#C7D5F7",
+    borderColor: "#A7F3D0",
   },
   topChipText: {
     fontFamily: fonts.semibold,
@@ -977,7 +977,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#E6EAFB",
+    backgroundColor: "#ECFDF5",
     borderRadius: radius.lg,
     padding: 16,
   },
@@ -990,7 +990,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
-    backgroundColor: "#E6EAFB",
+    backgroundColor: "#ECFDF5",
     borderRadius: radius.lg,
     padding: 14,
   },
@@ -1004,13 +1004,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#C7D5F7",
+    borderTopColor: "#A7F3D0",
     gap: 6,
   },
   overdueNoticeText: {
     fontFamily: fonts.body,
     fontSize: 12,
-    color: "#B45309",
+    color: "#475569",
   },
   todayBtn: {
     alignSelf: "flex-start",
@@ -1085,7 +1085,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   altChipActive: {
-    backgroundColor: "#F2F5FE",
+    backgroundColor: "#ECFDF5",
     borderColor: colors.primary,
   },
   altChipText: {

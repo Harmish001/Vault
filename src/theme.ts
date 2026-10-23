@@ -1,26 +1,26 @@
 export const colors = {
-  bg: "#F3F4F9",
+  bg: "#F8F9FA",
   surface: "#FFFFFF",
-  ink: "#141A33",
-  muted: "#5B6280",
-  line: "#E1E4F0",
-  primary: "#2A3BA8",
-  primaryDark: "#1B2874",
-  accent: "#F2A33A",
-  danger: "#C23B3B",
-  success: "#2F8F6B",
+  ink: "#0F172A",
+  muted: "#64748B",
+  line: "#E2E8F0",
+  primary: "#065F46",
+  primaryDark: "#041E18",
+  accent: "#0D9488",
+  danger: "#E11D48",
+  success: "#059669",
 };
 
-// One color per folder: lets a family give each member their own.
+// One color per folder: curated executive palette (emerald, jade, carbon, plum, rose, slate)
 export const folderColors = [
-  "#2A3BA8", // document blue
-  "#F2A33A", // marigold
-  "#1F8A7A", // teal
-  "#C2477A", // rose
-  "#2F8FD0", // sky
-  "#7A4FB0", // plum
-  "#5C9A3A", // leaf
-  "#5B6B7A", // slate
+  "#065F46", // alpine emerald
+  "#0D9488", // deep jade
+  "#334155", // carbon
+  "#7C3AED", // royal amethyst
+  "#BE123C", // bordeaux rose
+  "#047857", // classic forest
+  "#475569", // titanium slate
+  "#115E59", // deep pine
 ];
 
 export const fonts = {

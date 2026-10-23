@@ -9,7 +9,7 @@ import { dueInfo, expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../
 const KIND_STYLE = {
   image: { bg: "#E3F1FB", fg: "#2F8FD0" },
   pdf: { bg: "#FBE6E6", fg: "#C23B3B" },
-  doc: { bg: "#E4EAFB", fg: "#2A3BA8" },
+  doc: { bg: "#ECFDF5", fg: "#065F46" },
   sheet: { bg: "#E2F3EA", fg: "#2F8F6B" },
   video: { bg: "#EFE6F8", fg: "#7A4FB0" },
   other: { bg: "#ECEEF5", fg: "#5B6280" },
@@ -201,7 +201,7 @@ export function FolderTile(props: { folder: Folder; detail: string; onPress: () 
 
 export function FolderRow(props: { folder: Folder; detail: string; onPress: () => void; onLongPress?: () => void }) {
   return (
-    <Pressable onPress={props.onPress} onLongPress={props.onLongPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "#ECEFFA" }]}>
+    <Pressable onPress={props.onPress} onLongPress={props.onLongPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "#F1F5F9" }]}>
       <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: props.folder.color + "26", alignItems: "center", justifyContent: "center" }}>
         <Feather name="folder" size={22} color={props.folder.color} />
       </View>
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
-    backgroundColor: "#ECEFFA",
+    backgroundColor: "#F1F5F9",
     borderWidth: 1,
     borderColor: colors.line,
     maxWidth: "100%",
