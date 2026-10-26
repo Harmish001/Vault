@@ -270,6 +270,20 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
           ) : null}
         </Section>
 
+        <Section title="Notes">
+          <Row
+            title="Separate category tabs"
+            body="Show separate tabs for All Notes and Secure / Passwords inside the Notes screen."
+            right={
+              <Switch
+                value={settings.notesTabsEnabled ?? true}
+                onValueChange={(v) => update({ notesTabsEnabled: v })}
+                trackColor={{ true: colors.primary }}
+              />
+            }
+          />
+        </Section>
+
         <Section title="Home-screen widget">
           <View style={styles.block}>
             <Text style={styles.body}>

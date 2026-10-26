@@ -80,12 +80,34 @@ class LockScreenCardModule : Module() {
     return minOf(dm.widthPixels, dm.heightPixels) to maxOf(dm.widthPixels, dm.heightPixels)
   }
 
+  private fun getSystemWallpaper(w: Int, h: Int): Bitmap? {
+    return runCatching {
+      val wm = WallpaperManager.getInstance(context)
+      val drawable = wm.drawable ?: return@runCatching null
+      val dw = drawable.intrinsicWidth.takeIf { it > 0 } ?: w
+      val dh = drawable.intrinsicHeight.takeIf { it > 0 } ?: h
+      val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+      val canvas = Canvas(bmp)
+      val scale = maxOf(w / dw.toFloat(), h / dh.toFloat())
+      val ox = (w - dw * scale) / 2f
+      val oy = (h - dh * scale) / 2f
+      canvas.save()
+      canvas.translate(ox, oy)
+      canvas.scale(scale, scale)
+      drawable.setBounds(0, 0, dw, dh)
+      drawable.draw(canvas)
+      canvas.restore()
+      bmp
+    }.getOrNull()
+  }
+
   private fun render(card: Card, w: Int, h: Int): Bitmap {
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bmp)
     val accent = runCatching { Color.parseColor(card.color) }.getOrDefault(Color.rgb(122, 31, 53))
 
-    val photo = card.photo?.let { runCatching { loadPhoto(it, w, h) }.getOrNull() }
+    // Preserve the user's existing wallpaper and draw the card on top of it
+    val photo = card.photo?.let { runCatching { loadPhoto(it, w, h) }.getOrNull() } ?: getSystemWallpaper(w, h)
     if (photo != null) {
       val scale = maxOf(w / photo.width.toFloat(), h / photo.height.toFloat())
       val m = Matrix().apply {
@@ -93,7 +115,7 @@ class LockScreenCardModule : Module() {
         postTranslate((w - photo.width * scale) / 2f, (h - photo.height * scale) / 2f)
       }
       canvas.drawBitmap(photo, m, Paint(Paint.FILTER_BITMAP_FLAG))
-      canvas.drawColor(Color.argb(60, 0, 0, 0))
+      canvas.drawColor(Color.argb(50, 0, 0, 0))
     } else {
       val dark = Color.rgb(Color.red(accent) / 3, Color.green(accent) / 3, Color.blue(accent) / 3)
       canvas.drawPaint(Paint().apply { shader = LinearGradient(0f, 0f, 0f, h.toFloat(), accent, dark, Shader.TileMode.CLAMP) })

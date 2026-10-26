@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -11,7 +11,8 @@ import { colors, fonts, radius } from "../theme";
 import { Reminder } from "../types";
 import { formatDate, maskValue, parseISODate } from "../utils";
 import { DueBadge } from "../components/Rows";
-import { EmptyState, FabBar, Pill, ScreenHeader } from "../components/ui";
+import { EmptyState, FabBar, IconButton, Pill, ScreenHeader } from "../components/ui";
+import BottomNavBar from "../components/BottomNavBar";
 import { CATEGORY_DEFAULTS } from "../capture/billers";
 
 let DocumentScanner: {
@@ -72,8 +73,23 @@ export default function RemindersScreen({ navigation }: NativeStackScreenProps<R
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScreenHeader title="Reminders" subtitle="Subscriptions, bills and renewals" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 110, gap: 10 }}>
+      <ScreenHeader
+        title="Reminders"
+        left={
+          <Image
+            source={require("../../assets/logo-mark.png")}
+            style={{ width: 40, height: 40, borderRadius: 10 }}
+          />
+        }
+        right={
+          <IconButton
+            icon="settings"
+            label="Settings"
+            onPress={() => navigation.navigate("Settings")}
+          />
+        }
+      />
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 12) + 160, gap: 10 }}>
         {reminders.length === 0 ? (
           <View style={{ gap: 16 }}>
             <EmptyState
@@ -192,7 +208,7 @@ export default function RemindersScreen({ navigation }: NativeStackScreenProps<R
       </ScrollView>
 
       {/* Two-pill FabBar (§6.3) */}
-      <FabBar>
+      <FabBar bottomOffset={84}>
         <Pill
           icon="camera"
           label="Scan a bill"
@@ -205,6 +221,7 @@ export default function RemindersScreen({ navigation }: NativeStackScreenProps<R
           onPress={() => navigation.navigate("ReminderEdit", {})}
         />
       </FabBar>
+      <BottomNavBar active="reminders" />
     </View>
   );
 }

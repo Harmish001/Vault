@@ -75,7 +75,7 @@ export type Reminder = {
   amountValue?: number;
 };
 
-export type Favorite = { kind: "file" | "folder"; id: string };
+export type Favorite = { kind: "file" | "folder" | "note"; id: string };
 
 export type EmergencyContact = { id: string; name: string; relation: string; phone: string };
 
@@ -102,6 +102,20 @@ export type Profile = {
   showAddress: boolean;
 };
 
+export type NoteColor = "default" | "yellow" | "peach" | "rose" | "purple" | "blue" | "mint" | "sage";
+
+export type Note = {
+  id: string;
+  title: string;
+  content: string;
+  /** When true, content is secret (passwords, PINs, card info). Description is masked on the list with quick 1-tap copy. */
+  isSecret?: boolean;
+  pinned?: boolean;
+  color?: NoteColor;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type VaultIndex = {
   version: 1;
   folders: Folder[];
@@ -111,6 +125,8 @@ export type VaultIndex = {
   /** in the order the user arranged them; absent in older indexes */
   favorites?: Favorite[];
   profile?: Profile;
+  /** notes and secure credentials; absent in older indexes */
+  notes?: Note[];
 };
 
 export type IncomingFile = {
@@ -148,6 +164,8 @@ export type Settings = {
   lockCardNotification?: boolean;
   /** background photo for the lock-screen card, a file inside the app */
   lockCardPhoto?: string;
+  /** show separate tabs for All Notes and Secure / Passwords inside the Notes screen */
+  notesTabsEnabled?: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -161,4 +179,6 @@ export const DEFAULT_SETTINGS: Settings = {
   widgetThumbnails: false,
   widgetHidden: [],
   fileSort: "added",
+  notesTabsEnabled: true,
 };
+

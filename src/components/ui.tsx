@@ -78,9 +78,33 @@ export function Button(props: {
   );
 }
 
-export function FabBar({ children }: { children: React.ReactNode }) {
+export function FabBar({
+  children,
+  style,
+  bottomOffset,
+  withNavBar,
+}: {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  bottomOffset?: number;
+  withNavBar?: boolean;
+}) {
   const insets = useSafeAreaInsets();
-  return <View style={[styles.fabBar, { bottom: insets.bottom + 20 }]}>{children}</View>;
+  const baseBottom = Math.max(insets.bottom, 12);
+  // Dock height is ~65px. An offset of 84px positions the buttons comfortably above the floating dock.
+  const offset = bottomOffset !== undefined ? bottomOffset : withNavBar ? 84 : 20;
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.fabBar,
+        { bottom: baseBottom + offset },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function Pill(props: {
@@ -103,8 +127,10 @@ export function Pill(props: {
         (pressed || props.disabled) && { opacity: 0.8 },
       ]}
     >
-      <Feather name={props.icon} size={20} color={fg} />
-      <Text style={[styles.pillText, { color: fg }]}>{props.label}</Text>
+      <Feather name={props.icon} size={18} color={fg} />
+      <Text style={[styles.pillText, { color: fg }]} numberOfLines={1}>
+        {props.label}
+      </Text>
     </Pressable>
   );
 }
@@ -245,21 +271,30 @@ export function PromptModal(props: {
 }
 
 export const styles = StyleSheet.create({
-  fabBar: { position: "absolute", right: 18, flexDirection: "row", gap: 10 },
+  fabBar: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 8,
+    zIndex: 90,
+  },
   pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 18,
-    height: 52,
-    borderRadius: 26,
-    elevation: 4,
+    gap: 7,
+    paddingHorizontal: 16,
+    height: 48,
+    borderRadius: 24,
+    elevation: 5,
     shadowColor: colors.shadow,
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.22,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
   },
-  pillText: { fontFamily: fonts.semibold, fontSize: 16 },
+  pillText: { fontFamily: fonts.semibold, fontSize: 15 },
   header: {
     flexDirection: "row",
     alignItems: "center",

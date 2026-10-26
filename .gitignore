@@ -44,6 +44,7 @@ yarn-error.*
 modules/*/android/build/
 modules/*/android/.gradle/
 modules/*/android/.cxx/
+.gradle
 
 # signing material
 *.jks

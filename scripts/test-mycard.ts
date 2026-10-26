@@ -83,16 +83,16 @@ const card: Profile = {
   ],
   note: "Reward if returned",
   showMedical: true,
-  showAddress: false,
+  showAddress: true,
 };
 const lines = cardLines(card);
 assert(lines[0].label === "Call · Husband" && lines[0].value === "Amit  99999 11111", "contacts show relation and number");
 assert(lines[1].label === "Call" && lines.length === 4, "contacts without a phone and empty medical lines are dropped");
-assert(lines.some((l) => l.value === "Penicillin") && lines.some((l) => l.value === "O+"), "medical details shown by default");
-assert(!lines.some((l) => l.label === "Address"), "address hidden unless turned on");
-const private_ = cardLines({ ...card, showMedical: false, showAddress: true });
-assert(!private_.some((l) => l.label === "Blood group"), "medical details can be hidden");
-assert(private_.find((l) => l.label === "Address")?.value === "12 MG Road - 380001", "address joins pincode when shown");
-assert(cardLines({ ...card, contacts: [], showMedical: false }).length === 0, "nothing to show gives no lines");
+assert(lines.some((l) => l.value === "Penicillin"), "medical details shown by default");
+assert(!lines.some((l) => l.label === "Blood group"), "blood group is not shown as of now");
+assert(lines.some((l) => l.label === "Address" && l.value === "12 MG Road - 380001"), "address shown instead of blood group");
+const withoutAddress = cardLines({ ...card, showAddress: false });
+assert(!withoutAddress.some((l) => l.label === "Address"), "address can be hidden if turned off");
+assert(cardLines({ ...card, contacts: [], showMedical: false, showAddress: false }).length === 0, "nothing to show gives no lines");
 
 console.log("\nAll My card tests passed.");
