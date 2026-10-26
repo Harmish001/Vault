@@ -4,7 +4,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Directory as PickedDirectory, File as PickedFile } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { isPasswordProtected, unzip, unzipWithPassword, zip, zipWithPassword } from "react-native-zip-archive";
-import { Favorite, Folder, IncomingFile, Profile, Reminder, VaultFile, VaultIndex } from "../types";
+import { Favorite, Folder, IncomingFile, Note, Profile, Reminder, VaultFile, VaultIndex } from "../types";
 import { loadKey, randomNonce, replaceKey } from "../security/keystore";
 import { decryptString, encryptString } from "../security/crypto";
 import { pruneFavorites, toggleFavorite as toggleFav } from "../favorites";
@@ -33,7 +33,7 @@ const RESTORE_ZIP = CACHE + "restore.zip";
 const RESTORE_DIR = CACHE + "restore/";
 const OLD_ROOT = DOC + "vault_old/";
 
-const EMPTY: VaultIndex = { version: 1, folders: [], files: [], reminders: [] };
+const EMPTY: VaultIndex = { version: 1, folders: [], files: [], reminders: [], notes: [] };
 
 export const PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
 export const BACKUPS_UNAVAILABLE =
@@ -49,7 +49,11 @@ function parseIndex(text: string): VaultIndex | null {
   try {
     const parsed = JSON.parse(text);
     if (parsed && parsed.version === 1 && Array.isArray(parsed.folders) && Array.isArray(parsed.files)) {
-      return { ...parsed, reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [] } as VaultIndex;
+      return {
+        ...parsed,
+        reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
+        notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+      } as VaultIndex;
     }
   } catch {
     // not a usable index
@@ -214,6 +218,11 @@ type Ctx = {
   createReminder: (r: Omit<Reminder, "id" | "createdAt">) => Promise<Reminder>;
   updateReminder: (id: string, patch: Partial<Omit<Reminder, "id" | "createdAt">>) => Promise<void>;
   deleteReminder: (id: string) => Promise<void>;
+  notes: Note[];
+  createNote: (n: Omit<Note, "id" | "createdAt" | "updatedAt">) => Promise<Note>;
+  updateNote: (id: string, patch: Partial<Omit<Note, "id" | "createdAt">>) => Promise<void>;
+  deleteNote: (id: string) => Promise<void>;
+  togglePinNote: (id: string) => Promise<void>;
   /** only entries whose file or folder still exists, in the user's order */
   favorites: Favorite[];
   toggleFavorite: (kind: Favorite["kind"], id: string) => Promise<void>;
@@ -429,6 +438,46 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       result: undefined,
     }));
 
+  const createNote: Ctx["createNote"] = (input) =>
+    mutate(async (cur) => {
+      const now = Date.now();
+      const note: Note = {
+        ...input,
+        id: uid(),
+        createdAt: now,
+        updatedAt: now,
+      };
+      return { next: { ...cur, notes: [note, ...(cur.notes ?? [])] }, result: note };
+    });
+
+  const updateNote: Ctx["updateNote"] = (id, patch) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        notes: (cur.notes ?? []).map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n)),
+      },
+      result: undefined,
+    }));
+
+  const deleteNote: Ctx["deleteNote"] = (id) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        notes: (cur.notes ?? []).filter((n) => n.id !== id),
+        favorites: (cur.favorites ?? []).filter((f) => !(f.kind === "note" && f.id === id)),
+      },
+      result: undefined,
+    }));
+
+  const togglePinNote: Ctx["togglePinNote"] = (id) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        notes: (cur.notes ?? []).map((n) => (n.id === id ? { ...n, pinned: !n.pinned, updatedAt: Date.now() } : n)),
+      },
+      result: undefined,
+    }));
+
   const renameFile: Ctx["renameFile"] = (id, name) =>
     mutate(async (cur) => ({
       next: { ...cur, files: cur.files.map((f) => (f.id === id ? { ...f, name: name.trim() } : f)) },
@@ -517,21 +566,21 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
   const toggleFavorite: Ctx["toggleFavorite"] = (kind, id) =>
     mutate(async (cur) => ({
-      next: { ...cur, favorites: toggleFav(pruneFavorites(cur.favorites, cur.files, cur.folders), kind, id) },
+      next: { ...cur, favorites: toggleFav(pruneFavorites(cur.favorites, cur.files, cur.folders, cur.notes ?? []), kind, id) },
       result: undefined,
     }));
 
   const reorderFavorites: Ctx["reorderFavorites"] = (next) =>
     mutate(async (cur) => ({
-      next: { ...cur, favorites: pruneFavorites(next, cur.files, cur.folders) },
+      next: { ...cur, favorites: pruneFavorites(next, cur.files, cur.folders, cur.notes ?? []) },
       result: undefined,
     }));
 
   const saveProfile: Ctx["saveProfile"] = (p) => mutate(async (cur) => ({ next: { ...cur, profile: p }, result: undefined }));
 
   const favorites = useMemo(
-    () => pruneFavorites(index.favorites, index.files, index.folders),
-    [index.favorites, index.files, index.folders]
+    () => pruneFavorites(index.favorites, index.files, index.folders, index.notes ?? []),
+    [index.favorites, index.files, index.folders, index.notes]
   );
 
   const fileUri = useCallback((f: VaultFile) => FILES_DIR + f.storedAs, []);
@@ -711,6 +760,11 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     createReminder,
     updateReminder,
     deleteReminder,
+    notes: index.notes ?? [],
+    createNote,
+    updateNote,
+    deleteNote,
+    togglePinNote,
     favorites,
     toggleFavorite,
     reorderFavorites,

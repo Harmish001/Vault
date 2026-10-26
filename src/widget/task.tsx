@@ -6,10 +6,10 @@ import { readVaultIndex, vaultFilePath } from "../storage/vault";
 import { readSettings } from "../storage/settings";
 import { widgetItems } from "../favorites";
 import { kindOf } from "../utils";
-import type { Settings, VaultIndex } from "../types";
+import type { Note, Settings, VaultIndex } from "../types";
 import { FavoritesWidget, WIDGET_CARD, WIDGET_CAROUSEL, type WidgetCard } from "./FavoritesWidget";
 
-export type WidgetData = { index: Pick<VaultIndex, "files" | "folders" | "favorites"> | null; settings: Settings };
+export type WidgetData = { index: (Pick<VaultIndex, "files" | "folders" | "favorites"> & { notes?: Note[] }) | null; settings: Settings };
 
 const PAGES_FILE = (FileSystem.documentDirectory ?? "") + "widget-pages.json";
 
@@ -59,7 +59,7 @@ async function build(info: WidgetInfo, data: WidgetData, step = 0) {
   const cards: WidgetCard[] = await Promise.all(
     visible.map(async (it) => ({
       ...it,
-      thumb: data.settings.widgetThumbnails && kindOf(it.mime, it.name) === "image" ? await thumb(it.storedAs) : null,
+      thumb: data.settings.widgetThumbnails && it.storedAs && kindOf(it.mime, it.name) === "image" ? await thumb(it.storedAs) : null,
     }))
   );
   return <FavoritesWidget compact={compact} cards={cards} page={page} pages={pages} />;

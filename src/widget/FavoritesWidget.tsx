@@ -42,10 +42,10 @@ function Card({ card }: { card: WidgetCard }) {
         {card.thumb ? (
           <ImageWidget image={card.thumb as `data:image${string}`} imageWidth={40} imageHeight={40} radius={10} resizeMode="cover" />
         ) : (
-          <FlexWidget style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: hex(k.bg), justifyContent: "center", alignItems: "center" }}>
+          <FlexWidget style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: hex(card.kind === "note" ? colors.primarySoft : k.bg), justifyContent: "center", alignItems: "center" }}>
             <TextWidget
-              text={(extOf(card.name).slice(1) || "file").toUpperCase().slice(0, 4)}
-              style={{ fontSize: 11, fontWeight: "700", color: hex(k.fg) }}
+              text={card.kind === "note" ? "NOTE" : (extOf(card.name).slice(1) || "file").toUpperCase().slice(0, 4)}
+              style={{ fontSize: 11, fontWeight: "700", color: hex(card.kind === "note" ? colors.primary : k.fg) }}
             />
           </FlexWidget>
         )}

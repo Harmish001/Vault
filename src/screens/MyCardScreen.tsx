@@ -25,10 +25,11 @@ import { colors, fonts, radius } from "../theme";
 import type { EmergencyContact, Profile } from "../types";
 import { folderPath, uid } from "../utils";
 import { FolderPicker } from "../components/FolderPicker";
-import { Button, PromptModal, ScreenHeader, SheetModal } from "../components/ui";
+import { Button, IconButton, PromptModal, ScreenHeader, SheetModal } from "../components/ui";
+import BottomNavBar from "../components/BottomNavBar";
 
 const CARD_COLOR = colors.danger;
-const EMPTY: Profile = { name: "", contacts: [], showMedical: true, showAddress: false };
+const EMPTY: Profile = { name: "", contacts: [], showMedical: true, showAddress: true };
 const MAX_CONTACTS = 3;
 
 type TextKey = "name" | "phone" | "email" | "address" | "pincode" | "dob" | "allergies" | "conditions" | "medicines" | "note";
@@ -167,12 +168,27 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScreenHeader title="My card" subtitle="Emergency card and autofill details" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 18 }}>
+      <ScreenHeader
+        title="My Card"
+        left={
+          <Image
+            source={require("../../assets/logo-mark.png")}
+            style={{ width: 40, height: 40, borderRadius: 10 }}
+          />
+        }
+        right={
+          <IconButton
+            icon="settings"
+            label="Settings"
+            onPress={() => navigation.navigate("Settings")}
+          />
+        }
+      />
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 12) + 110, gap: 18 }}>
         <View style={styles.hero}>
           <Feather name="heart" size={22} color={CARD_COLOR} />
           <Text style={styles.heroText}>
-            If you're hurt or lose your phone, the person holding it can call your family and see your blood group, straight from the lock screen. Document numbers are never shown there.
+            If you're hurt or lose your phone, the person holding it can call your family and see your address, straight from the lock screen. Document numbers are never shown there.
           </Text>
         </View>
 
@@ -200,25 +216,6 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
               <Button label={p.contacts.length ? "Add another contact" : "Add an emergency contact"} kind="secondary" onPress={() => setContact({})} />
             </View>
           ) : null}
-          <View style={styles.block}>
-            <Text style={styles.label}>Blood group</Text>
-            <View style={styles.chips}>
-              {BLOOD_GROUPS.map((g) => {
-                const on = p.bloodGroup === g;
-                return (
-                  <Pressable
-                    key={g}
-                    onPress={() => save({ bloodGroup: on ? undefined : g })}
-                    style={[styles.chip, on && styles.chipOn]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: on }}
-                  >
-                    <Text style={[styles.chipText, on && { color: colors.onPrimary }]}>{g}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
           {field("allergies", p.allergies)}
           {field("conditions", p.conditions)}
           {field("medicines", p.medicines)}
@@ -231,32 +228,32 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
               <Image source={{ uri: preview }} style={styles.preview} accessibilityLabel="Preview of the lock-screen card" />
             </View>
           ) : null}
+          <ToggleRow
+            title="Card as lock-screen notification"
+            body="Displays directly on top of your lock screen without modifying wallpaper. Readable without unlocking."
+            value={!!settings.lockCardNotification}
+            onChange={toggleNotification}
+          />
           {canLock ? (
             <>
               <ToggleRow
                 title="Card as lock-screen wallpaper"
-                body="Always visible, even with the battery low or notifications hidden."
+                body="Overlays your emergency card on top of your current lock screen wallpaper."
                 value={!!settings.lockCardWallpaper}
                 disabled={busy}
                 onChange={toggleWallpaper}
               />
               <View style={[styles.block, { flexDirection: "row", gap: 10 }]}>
-                <Button label={settings.lockCardPhoto ? "Change photo" : "Use my photo"} kind="secondary" onPress={choosePhoto} style={{ flex: 1 }} />
-                {settings.lockCardPhoto ? <Button label="Plain" kind="secondary" onPress={clearPhoto} /> : null}
+                <Button label={settings.lockCardPhoto ? "Change photo" : "Custom background photo"} kind="secondary" onPress={choosePhoto} style={{ flex: 1 }} />
+                {settings.lockCardPhoto ? <Button label="Reset to wallpaper" kind="secondary" onPress={clearPhoto} /> : null}
               </View>
             </>
           ) : null}
-          <ToggleRow
-            title="Card as lock-screen notification"
-            body="A quiet notification with the same details. It comes back when you open DocVault after a restart."
-            value={!!settings.lockCardNotification}
-            onChange={toggleNotification}
-          />
-          <ToggleRow title="Show medical details" body="Blood group, allergies, conditions and medicines." value={p.showMedical} onChange={(v) => save({ showMedical: v })} />
+          <ToggleRow title="Show medical details" body="Allergies, conditions and medicines." value={p.showMedical} onChange={(v) => save({ showMedical: v })} />
           <ToggleRow
             title="Show my address"
-            body="Off by default: anyone who picks up the phone would see where you live."
-            value={p.showAddress}
+            body="Shown on your emergency card so whoever finds your phone can return it."
+            value={p.showAddress ?? true}
             onChange={(v) => save({ showAddress: v })}
           />
           <View style={styles.block}>
@@ -313,6 +310,7 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
           save({ folderId: id });
         }}
       />
+      <BottomNavBar active="mycard" />
     </View>
   );
 }

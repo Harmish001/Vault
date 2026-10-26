@@ -23,4 +23,7 @@ export type RootStackParamList = {
   ShareChooser: undefined;
   Favorites: undefined;
   MyCard: undefined;
+  Notes: undefined;
+  NoteEdit: { id?: string } | undefined;
 };
+

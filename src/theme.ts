@@ -77,6 +77,19 @@ export const toneColors = {
   expired: { bg: colors.dangerSoft, fg: colors.dangerInk },
 } as const;
 
+/** Google Keep style pastel notes colors */
+export const noteColors = {
+  default: { bg: colors.surface, line: colors.line, text: colors.ink },
+  yellow: { bg: "#FEF7D2", line: "#E8DC9E", text: "#483F16" },
+  peach: { bg: "#FCEEE3", line: "#E5C8B4", text: "#4F3320" },
+  rose: { bg: "#FCE4EC", line: "#E8B8C8", text: "#522533" },
+  purple: { bg: "#F3E8FD", line: "#D8C0F0", text: "#3E2555" },
+  blue: { bg: "#E4F2FD", line: "#BDD8F2", text: "#203B52" },
+  mint: { bg: "#E6F4EA", line: "#BEDECA", text: "#1F462C" },
+  sage: { bg: "#EFEBE9", line: "#D2CAC6", text: "#463D39" },
+} as const;
+
+
 export const fonts = {
   title: "BricolageGrotesque_700Bold",
   heading: "BricolageGrotesque_600SemiBold",

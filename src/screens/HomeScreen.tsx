@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -11,12 +11,13 @@ import { countInside, daysUntil, expiryInfo, fileSearchText, folderPath, plural 
 import { nextDue } from "../reminders-plan";
 import { DueBadge, ExpiryBadge, FileRow, FileThumb, FolderRow, FolderTile } from "../components/Rows";
 import { isFavorite } from "../favorites";
-import type { Folder, VaultFile } from "../types";
+import type { Folder, Note, VaultFile } from "../types";
 import { useFileActions, useFolderActions } from "../components/actions";
 import { Button, EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
+import BottomNavBar from "../components/BottomNavBar";
 
 export default function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
-  const { folders, files, reminders, createFolder, fileUri, openFile, favorites, toggleFavorite, shareFile } = useVault();
+  const { folders, files, reminders, notes, createFolder, fileUri, openFile, favorites, toggleFavorite, shareFile } = useVault();
   const { noDeviceLock } = useLock();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -38,15 +39,19 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
   }, [reminders]);
   const favItems = useMemo(
     () =>
-      favorites.flatMap((fav): ({ kind: "file"; file: VaultFile } | { kind: "folder"; folder: Folder })[] => {
+      favorites.flatMap((fav): ({ kind: "file"; file: VaultFile } | { kind: "folder"; folder: Folder } | { kind: "note"; note: Note })[] => {
         if (fav.kind === "file") {
           const file = files.find((f) => f.id === fav.id);
           return file ? [{ kind: "file" as const, file }] : [];
         }
-        const folder = folders.find((f) => f.id === fav.id);
-        return folder ? [{ kind: "folder" as const, folder }] : [];
+        if (fav.kind === "folder") {
+          const folder = folders.find((f) => f.id === fav.id);
+          return folder ? [{ kind: "folder" as const, folder }] : [];
+        }
+        const note = notes.find((n) => n.id === fav.id);
+        return note ? [{ kind: "note" as const, note }] : [];
       }),
-    [favorites, files, folders]
+    [favorites, files, folders, notes]
   );
   const q = query.trim().toLowerCase();
   const folderHits = q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : [];
@@ -76,16 +81,12 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
         title="DocVault"
         left={<Image source={require("../../assets/logo-mark.png")} style={{ width: 40, height: 40, borderRadius: 10 }} />}
         right={
-          <>
-            <IconButton icon="heart" label="My card" onPress={() => navigation.navigate("MyCard")} />
-            <IconButton icon="bell" label="Reminders" onPress={() => navigation.navigate("Reminders")} />
-            <IconButton icon="settings" label="Settings" onPress={() => navigation.navigate("Settings")} />
-          </>
+          <IconButton icon="settings" label="Settings" onPress={() => navigation.navigate("Settings")} />
         }
       />
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 160 }}
       >
         {noDeviceLock ? (
           <View style={styles.warn}>
@@ -181,7 +182,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
                         <Text style={styles.favName} numberOfLines={2}>{it.file.name}</Text>
                         <Text style={styles.favSub} numberOfLines={1}>{folderPath(folders, it.file.folderId)}</Text>
                       </Pressable>
-                    ) : (
+                    ) : it.kind === "folder" ? (
                       <Pressable
                         key={it.folder.id}
                         onPress={() => navigation.navigate("Folder", { id: it.folder.id })}
@@ -195,6 +196,31 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
                         </View>
                         <Text style={styles.favName} numberOfLines={2}>{it.folder.name}</Text>
                         <Text style={styles.favSub} numberOfLines={1}>{detail(it.folder.id)}</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        key={it.note.id}
+                        onPress={() => navigation.navigate("NoteEdit", { id: it.note.id })}
+                        style={({ pressed }) => [styles.favCard, pressed && { opacity: 0.85 }]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open note ${it.note.title}`}
+                      >
+                        <View style={styles.favTop}>
+                          <View style={[styles.favFolderIcon, { backgroundColor: colors.primary + "18", width: 36, height: 36, marginBottom: 0 }]}>
+                            <Feather name={it.note.isSecret ? "lock" : "edit-3"} size={18} color={colors.primary} />
+                          </View>
+                          <Pressable
+                            onPress={() => Share.share({ title: it.note.title, message: it.note.content }).catch(() => Alert.alert("Couldn't share this note"))}
+                            hitSlop={10}
+                            style={styles.favShare}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Share ${it.note.title}`}
+                          >
+                            <Feather name="share-2" size={16} color={colors.primary} />
+                          </Pressable>
+                        </View>
+                        <Text style={styles.favName} numberOfLines={2}>{it.note.title || "Untitled Note"}</Text>
+                        <Text style={styles.favSub} numberOfLines={1}>{it.note.isSecret ? "Secure note" : "Note"}</Text>
                       </Pressable>
                     )
                   )}
@@ -262,7 +288,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
       </ScrollView>
 
       {roots.length > 0 && !q ? (
-        <FabBar>
+        <FabBar bottomOffset={84}>
           <Pill icon="camera" label="Scan" tone="dark" onPress={() => navigation.navigate("Scan")} />
           <Pill icon="folder-plus" label="New folder" onPress={() => setCreating(true)} />
         </FabBar>
@@ -284,6 +310,7 @@ export default function HomeScreen({ navigation }: NativeStackScreenProps<RootSt
       />
       {fileActions.element}
       {folderActions.element}
+      <BottomNavBar active="documents" />
     </View>
   );
 }

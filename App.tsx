@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, Linking, Text, ToastAndroid, View } from "react-native";
+import { Alert, AppState, Linking, Share, Text, ToastAndroid, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as DocumentPicker from "expo-document-picker";
 import * as Notifications from "expo-notifications";
@@ -32,6 +32,9 @@ import ReminderEditScreen from "./src/screens/ReminderEditScreen";
 import ShareChooserScreen, { isSharedImage } from "./src/screens/ShareChooserScreen";
 import FavoritesScreen from "./src/screens/FavoritesScreen";
 import MyCardScreen from "./src/screens/MyCardScreen";
+import NotesScreen from "./src/screens/NotesScreen";
+import NoteEditScreen from "./src/screens/NoteEditScreen";
+
 import { refreshWidgets } from "./src/widget";
 import { syncFolderShortcuts } from "./src/folderShortcuts";
 import { buildFillProfiles, syncAutofill } from "./src/autofill";
@@ -63,7 +66,7 @@ const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background
 
 function Shell({ fontsReady }: { fontsReady: boolean }) {
   const { ready: settingsReady, settings } = useSettings();
-  const { ready: vaultReady, files, folders, reminders, favorites, profile, updateReminder, openFile, shareFile, error: vaultError } = useVault();
+  const { ready: vaultReady, files, folders, reminders, favorites, notes, profile, updateReminder, openFile, shareFile, error: vaultError } = useVault();
   const { locked, relockDue } = useLock();
   const { hasShareIntent, shareIntent } = useShareIntentContext();
   const [navReady, setNavReady] = useState(false);
@@ -164,8 +167,8 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
 
   // Home-screen widget: redraw from the unlocked app whenever what it shows may have changed.
   useEffect(() => {
-    if (appReady && !vaultError) refreshWidgets({ index: { files, folders, favorites }, settings });
-  }, [appReady, vaultError, files, folders, favorites, settings]);
+    if (appReady && !vaultError) refreshWidgets({ index: { files, folders, favorites, notes }, settings });
+  }, [appReady, vaultError, files, folders, favorites, notes, settings]);
 
   useEffect(() => {
     if (appReady && !vaultError) syncFolderShortcuts(folders);
@@ -208,14 +211,23 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
       return;
     }
     const f = files.find((x) => x.id === appLink.id);
+    const n = notes.find((x) => x.id === appLink.id);
+    if (n) {
+      if (appLink.action === "share") {
+        Share.share({ title: n.title, message: n.content }).catch(() => Alert.alert("Couldn't share this note"));
+      } else {
+        navRef.navigate("NoteEdit", { id: n.id });
+      }
+      return;
+    }
     if (!f) {
-      ToastAndroid.show("That document is no longer in DocVault.", ToastAndroid.SHORT);
+      ToastAndroid.show("That item is no longer in DocVault.", ToastAndroid.SHORT);
     } else if (appLink.action === "share") {
       shareFile(f).catch(() => Alert.alert("Couldn't share this file"));
     } else {
       openFile(f);
     }
-  }, [appLink, appReady, navReady, locked, relockDue, vaultError, files, folders, openFile, shareFile]);
+  }, [appLink, appReady, navReady, locked, relockDue, vaultError, files, folders, notes, openFile, shareFile]);
 
   if (!appReady) return <View style={{ flex: 1, backgroundColor: colors.primaryDark }} />;
   if (vaultError) return <VaultProblem message={vaultError} />;
@@ -234,7 +246,10 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="ShareChooser" component={ShareChooserScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />
         <Stack.Screen name="MyCard" component={MyCardScreen} />
+        <Stack.Screen name="Notes" component={NotesScreen} options={{ animation: "none" }} />
+        <Stack.Screen name="NoteEdit" component={NoteEditScreen} />
       </Stack.Navigator>
+
     </NavigationContainer>
   );
 }
