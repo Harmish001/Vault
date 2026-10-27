@@ -3,6 +3,7 @@ import {
   Alert,
   AppState,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -15,12 +16,15 @@ import { RootStackParamList } from "../navigation";
 import { colors, fonts, radius } from "../theme";
 import { ScreenHeader } from "../components/ui";
 import { stopShareSession } from "../sharing/sharing";
+import { RELAY_BASE_URL } from "../sharing/sharingRelay";
+
+const RELAY_HOST = RELAY_BASE_URL.replace(/^https?:\/\//, "");
 
 export default function ShareQRScreen({
   navigation,
   route,
 }: NativeStackScreenProps<RootStackParamList, "ShareQR">) {
-  const { url, expiresAt, token, itemCount } = route.params;
+  const { url, expiresAt, token, itemCount, code, words } = route.params;
   const insets = useSafeAreaInsets();
 
   const [secondsLeft, setSecondsLeft] = useState(
@@ -82,7 +86,7 @@ export default function ShareQRScreen({
         onBack={() => navigation.goBack()}
       />
 
-      <View style={styles.body}>
+      <ScrollView contentContainerStyle={styles.body}>
         {/* QR card */}
         <View style={styles.card}>
           {expired ? (
@@ -119,13 +123,26 @@ export default function ShareQRScreen({
               </Text>
             </View>
           )}
+
+          {/* Typed alternative for PCs without a camera */}
+          {!expired && !blurred && (
+            <View style={styles.codeBox}>
+              <Text style={styles.codeHint}>No camera? Open {RELAY_HOST} and type:</Text>
+              <Text style={styles.codeText} selectable>
+                {code.slice(0, 3)} {code.slice(3)}
+              </Text>
+              <Text style={styles.wordsText} selectable>
+                {words.join("  ")}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Instructions */}
         <View style={styles.steps}>
           {[
-            { icon: "smartphone", text: "Open any browser on your PC or another device" },
-            { icon: "camera", text: "Scan this QR code" },
+            { icon: "camera", text: "Scan this QR code with any device that has a camera" },
+            { icon: "monitor", text: `No camera on your PC? Open ${RELAY_HOST} and type the code and words` },
             { icon: "unlock", text: "Files decrypt instantly in the browser — nothing stored" },
           ].map((step, i) => (
             <View key={i} style={styles.step}>
@@ -144,7 +161,7 @@ export default function ShareQRScreen({
             End-to-end encrypted · key never leaves this device · single-use link
           </Text>
         </View>
-      </View>
+      </ScrollView>
 
       {/* Stop button */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
@@ -167,7 +184,6 @@ export default function ShareQRScreen({
 
 const styles = StyleSheet.create({
   body: {
-    flex: 1,
     padding: 20,
     gap: 20,
     alignItems: "center",
@@ -238,6 +254,32 @@ const styles = StyleSheet.create({
   timerText: {
     fontFamily: fonts.semibold,
     fontSize: 15,
+  },
+  codeBox: {
+    width: "100%",
+    alignItems: "center",
+    gap: 6,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  codeHint: {
+    fontFamily: fonts.body,
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: "center",
+  },
+  codeText: {
+    fontFamily: fonts.heading,
+    fontSize: 32,
+    letterSpacing: 4,
+    color: colors.primaryDark,
+  },
+  wordsText: {
+    fontFamily: fonts.semibold,
+    fontSize: 17,
+    color: colors.primary,
+    textAlign: "center",
   },
   steps: {
     width: "100%",

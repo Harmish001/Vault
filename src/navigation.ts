@@ -28,6 +28,13 @@ export type RootStackParamList = {
   Notes: undefined;
   NoteEdit: { id?: string } | undefined;
   SmartShare: undefined;
-  ShareQR: { url: string; expiresAt: number; token: string; itemCount: number };
+  ShareQR: {
+    url: string;
+    expiresAt: number;
+    token: string;
+    itemCount: number;
+    code: string;
+    words: string[];
+  };
 };
 

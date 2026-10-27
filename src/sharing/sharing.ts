@@ -2,18 +2,20 @@
  * Core sharing session logic.
  *
  * Call `createShareSession` to:
- *   1. Generate a fresh AES-256 key for this session only.
+ *   1. Pick a 6-digit code + 4 words and derive this session's AES-256 key from them.
  *   2. Build a ShareBundle from the selected files/notes.
  *   3. Encrypt the bundle with that key.
- *   4. Upload the ciphertext to the relay.
- *   5. Return the QR URL (token + key in #hash) and expiry.
+ *   4. Upload the ciphertext (plus code and key verifier) to the relay.
+ *   5. Return the QR URL (token + key in #hash), the code + words, and expiry.
  *
  * The session can be torn down early with `stopShareSession`.
  */
 import * as FileSystem from "expo-file-system/legacy";
+import * as Crypto from "expo-crypto";
 import { VaultFile, Note } from "../types";
-import { generateShareKey, encryptBlob, encryptText, toUrlBase64 } from "./sharingCrypto";
-import { ShareBundle, ShareItem, uploadBundle, deleteBundle, buildShareUrl } from "./sharingRelay";
+import { encryptBlob, toUrlBase64 } from "./sharingCrypto";
+import { ShareBundle, ShareItem, uploadBundle, deleteBundle, buildShareUrl, CodeTakenError } from "./sharingRelay";
+import { pickShareCode, pickShareWords, deriveShareKey, shareVerifier } from "./shareCode";
 
 export type ShareableItem =
   | { kind: "file"; file: VaultFile }
@@ -26,7 +28,13 @@ export type ShareSession = {
   expiresAt: number;
   /** The relay token — needed for early deletion */
   token: string;
+  /** 6-digit code typed on the PC instead of scanning */
+  code: string;
+  /** Words typed on the PC with the code; the key is derived from them */
+  words: string[];
 };
+
+const MAX_CODE_TRIES = 5;
 
 /** Files live inside the vault/files/ directory. */
 const FILES_DIR =
@@ -53,53 +61,57 @@ export async function createShareSession(
   items: ShareableItem[],
   ttlSec = 300
 ): Promise<ShareSession> {
-  const key = generateShareKey();
-  const keyB64 = toUrlBase64(key);
-
-  const bundleItems: ShareItem[] = [];
+  const plain: (Omit<ShareItem, "encrypted"> & { bytes: Uint8Array })[] = [];
 
   for (const item of items) {
     if (item.kind === "file") {
       const f = item.file;
       const uri = FILES_DIR + f.storedAs;
-      const bytes = await fileToUint8Array(uri);
-      bundleItems.push({
+      plain.push({
         id: f.id,
         name: f.name,
         mime: f.mime,
-        encrypted: encryptBlob(key, bytes),
+        bytes: await fileToUint8Array(uri),
         originalSize: f.size,
       });
     } else {
       const n = item.note;
       // Share non-secret notes only; caller should filter secret ones out.
       const text = JSON.stringify({ title: n.title, content: n.content });
-      const bytes = new TextEncoder().encode(text);
-      bundleItems.push({
+      plain.push({
         id: n.id,
         name: n.title || "Untitled Note",
         mime: "application/x-docvault-note",
-        encrypted: encryptBlob(key, bytes),
+        bytes: new TextEncoder().encode(text),
         originalSize: text.length,
       });
     }
   }
 
-  const bundle: ShareBundle = {
-    v: 1,
-    createdAt: new Date().toISOString(),
-    items: bundleItems,
-  };
+  const words = pickShareWords(Crypto.getRandomBytes(8));
 
-  // Encrypt the bundle manifest itself so the relay never sees item names.
-  const manifestJson = JSON.stringify(bundle);
-  const manifestBytes = new TextEncoder().encode(manifestJson);
-  const encryptedManifest = encryptBlob(key, manifestBytes);
+  // The key is salted with the code, so a code collision means re-encrypting.
+  for (let attempt = 1; ; attempt++) {
+    const code = pickShareCode(Crypto.getRandomBytes(4));
+    const key = await deriveShareKey(code, words.join(" "));
 
-  const { token, expiresAt } = await uploadBundle(encryptedManifest, ttlSec);
-  const url = buildShareUrl(token, keyB64);
+    const bundle: ShareBundle = {
+      v: 1,
+      createdAt: new Date().toISOString(),
+      items: plain.map(({ bytes, ...meta }) => ({ ...meta, encrypted: encryptBlob(key, bytes) })),
+    };
 
-  return { url, expiresAt, token };
+    // Encrypt the bundle manifest itself so the relay never sees item names.
+    const manifestBytes = new TextEncoder().encode(JSON.stringify(bundle));
+    const encryptedManifest = encryptBlob(key, manifestBytes);
+
+    try {
+      const { token, expiresAt } = await uploadBundle(encryptedManifest, ttlSec, code, shareVerifier(key));
+      return { url: buildShareUrl(token, toUrlBase64(key)), expiresAt, token, code, words };
+    } catch (e) {
+      if (!(e instanceof CodeTakenError) || attempt >= MAX_CODE_TRIES) throw e;
+    }
+  }
 }
 
 /**

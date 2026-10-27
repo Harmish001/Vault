@@ -83,6 +83,8 @@ export default function SmartShareScreen({
         expiresAt: session.expiresAt,
         token: session.token,
         itemCount: items.length,
+        code: session.code,
+        words: session.words,
       });
     } catch (e) {
       Alert.alert(
