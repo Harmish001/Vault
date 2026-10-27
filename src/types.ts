@@ -172,6 +172,8 @@ export type Settings = {
   lastAutoBackupTime?: number;
   /** resolved absolute path where the latest auto backup is stored */
   autoBackupPath?: string;
+  /** show DocVault inside the system file picker (Documents Provider) */
+  documentsProviderEnabled?: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -187,5 +189,6 @@ export const DEFAULT_SETTINGS: Settings = {
   fileSort: "added",
   notesTabsEnabled: true,
   autoBackupEnabled: true,
+  documentsProviderEnabled: true,
 };
 

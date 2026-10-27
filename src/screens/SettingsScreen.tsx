@@ -238,6 +238,17 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
               {!fillSelected ? <Button label="Choose DocVault in Android settings" onPress={chooseAutofill} style={{ marginTop: 12 }} /> : null}
             </View>
           ) : null}
+          <Row
+            title="System file picker"
+            body="Show DocVault inside Android's “Choose file” dialog when uploading documents in Chrome, bank portals and other apps."
+            right={
+              <Switch
+                value={settings.documentsProviderEnabled !== false}
+                onValueChange={(v) => update({ documentsProviderEnabled: v })}
+                trackColor={{ true: colors.primary }}
+              />
+            }
+          />
           <View style={styles.block}>
             <Text style={styles.body}>Your name, contacts and blood group for the lock screen, and the details autofill uses.</Text>
             <Button label="Open My card" kind="secondary" onPress={() => navigation.navigate("MyCard")} style={{ marginTop: 12 }} />

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AppState, Linking, Share, Text, ToastAndroid, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
@@ -38,21 +39,22 @@ import NoteEditScreen from "./src/screens/NoteEditScreen";
 import { refreshWidgets } from "./src/widget";
 import { syncFolderShortcuts } from "./src/folderShortcuts";
 import { buildFillProfiles, syncAutofill } from "./src/autofill";
+import { syncDocumentsProvider } from "./src/documents-provider";
 import { showCardNotification } from "./src/emergency";
 import { parseBill } from "./src/capture/parseBill";
 import { getNextWeeklyBackupTime, isAutoBackupDue } from "./src/auto-backup-plan";
 import { scheduleWeeklyAutoBackupAlarm } from "./src/autoBackup";
 
-type AppLink = { action: "open" | "share" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
+type AppLink = { action: "open" | "share" | "copy" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
 
 /**
- * Widget taps: docvault://widget/open?id=… or docvault://widget/share?id=…
+ * Widget taps: docvault://widget/open?id=…, docvault://widget/share?id=…, or docvault://widget/copy?id=…
  * Launcher shortcuts: docvault://quick/scan, /add, /reminder, and pinned folders as docvault://quick/folder?id=…
  */
 function parseAppLink(url: string | null): AppLink | null {
   if (!url) return null;
-  const w = /^docvault:\/\/widget\/(open|share)\?id=([^&]+)/.exec(url);
-  if (w) return { action: w[1] as "open" | "share", id: decodeURIComponent(w[2]) };
+  const w = /^docvault:\/\/widget\/(open|share|copy)\?id=([^&]+)/.exec(url);
+  if (w) return { action: w[1] as "open" | "share" | "copy", id: decodeURIComponent(w[2]) };
   const q = /^docvault:\/\/quick\/(scan|add|reminder|folder)(?:\?id=([^&]+))?/.exec(url);
   if (!q) return null;
   if (q[1] === "folder") return q[2] ? { action: "folder", id: decodeURIComponent(q[2]) } : null;
@@ -216,6 +218,12 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     syncAutofill(settings.autofillEnabled ? buildFillProfiles(folders, files, profile) : null);
   }, [appReady, vaultError, settings.autofillEnabled, folders, files, profile]);
 
+  // System file picker (Documents Provider) reads an encrypted snapshot refreshed while the app is unlocked.
+  useEffect(() => {
+    if (!appReady || vaultError) return;
+    syncDocumentsProvider(folders, files, settings.documentsProviderEnabled !== false);
+  }, [appReady, vaultError, settings.documentsProviderEnabled, folders, files]);
+
   // Android drops notifications on restart; put the emergency card back on the lock screen.
   useEffect(() => {
     if (appReady && !vaultError && settings.lockCardNotification && profile?.name.trim()) {
@@ -249,7 +257,12 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     const f = files.find((x) => x.id === appLink.id);
     const n = notes.find((x) => x.id === appLink.id);
     if (n) {
-      if (appLink.action === "share") {
+      if (appLink.action === "copy") {
+        const text = [n.title?.trim(), n.content?.trim()].filter(Boolean).join("\n\n");
+        Clipboard.setStringAsync(text || n.title || "")
+          .then(() => ToastAndroid.show("Note copied to clipboard", ToastAndroid.SHORT))
+          .catch(() => ToastAndroid.show("Couldn't copy note", ToastAndroid.SHORT));
+      } else if (appLink.action === "share") {
         Share.share({ title: n.title, message: n.content }).catch(() => Alert.alert("Couldn't share this note"));
       } else {
         navRef.navigate("NoteEdit", { id: n.id });
@@ -258,6 +271,18 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     }
     if (!f) {
       ToastAndroid.show("That item is no longer in DocVault.", ToastAndroid.SHORT);
+    } else if (appLink.action === "copy") {
+      const parts: string[] = [];
+      if (f.fields?.length) {
+        for (const field of f.fields) {
+          if (field.value?.trim()) parts.push(`${field.label}: ${field.value.trim()}`);
+        }
+      }
+      if (f.notes?.trim()) parts.push(f.notes.trim());
+      const toCopy = parts.join("\n") || f.name;
+      Clipboard.setStringAsync(toCopy)
+        .then(() => ToastAndroid.show("Details copied to clipboard", ToastAndroid.SHORT))
+        .catch(() => ToastAndroid.show("Couldn't copy details", ToastAndroid.SHORT));
     } else if (appLink.action === "share") {
       shareFile(f).catch(() => Alert.alert("Couldn't share this file"));
     } else {
