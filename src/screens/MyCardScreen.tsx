@@ -26,7 +26,6 @@ import type { EmergencyContact, Profile } from "../types";
 import { folderPath, uid } from "../utils";
 import { FolderPicker } from "../components/FolderPicker";
 import { Button, IconButton, PromptModal, ScreenHeader, SheetModal } from "../components/ui";
-import BottomNavBar from "../components/BottomNavBar";
 
 const CARD_COLOR = colors.danger;
 const EMPTY: Profile = { name: "", contacts: [], showMedical: true, showAddress: true };
@@ -170,12 +169,7 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScreenHeader
         title="My Card"
-        left={
-          <Image
-            source={require("../../assets/logo-mark.png")}
-            style={{ width: 40, height: 40, borderRadius: 10 }}
-          />
-        }
+        onBack={() => navigation.goBack()}
         right={
           <IconButton
             icon="settings"
@@ -310,7 +304,6 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
           save({ folderId: id });
         }}
       />
-      <BottomNavBar active="mycard" />
     </View>
   );
 }

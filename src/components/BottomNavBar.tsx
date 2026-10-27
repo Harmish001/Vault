@@ -9,13 +9,14 @@ import { colors, fonts } from "../theme";
 import { useVault } from "../storage/vault";
 import { nextDue } from "../reminders-plan";
 
-export type TabKey = "documents" | "notes" | "reminders" | "mycard";
+export type TabKey = "documents" | "notes" | "home" | "reminders";
 
 type Props = {
   active: TabKey;
+  onChangeTab?: (tab: TabKey) => void;
 };
 
-export default function BottomNavBar({ active }: Props) {
+export default function BottomNavBar({ active, onChangeTab }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
@@ -27,45 +28,42 @@ export default function BottomNavBar({ active }: Props) {
     return reminders.filter((r) => Boolean(nextDue(r, now))).length;
   }, [reminders]);
 
+  const handlePress = (key: TabKey) => {
+    if (onChangeTab) {
+      onChangeTab(key);
+    } else {
+      navigation.navigate("Home", { tab: key });
+    }
+  };
+
   const tabs: {
     key: TabKey;
     label: string;
     icon: React.ComponentProps<typeof Feather>["name"];
     badge?: number;
-    onPress: () => void;
+    isCenter?: boolean;
   }[] = [
     {
       key: "documents",
       label: "Documents",
       icon: "folder",
-      onPress: () => {
-        if (active !== "documents") navigation.navigate("Home");
-      },
     },
     {
       key: "notes",
       label: "Notes",
       icon: "edit-3",
-      onPress: () => {
-        if (active !== "notes") navigation.navigate("Notes");
-      },
+    },
+    {
+      key: "home",
+      label: "Home",
+      icon: "home",
+      isCenter: true,
     },
     {
       key: "reminders",
       label: "Reminders",
       icon: "bell",
       badge: dueCount > 0 ? dueCount : undefined,
-      onPress: () => {
-        if (active !== "reminders") navigation.navigate("Reminders");
-      },
-    },
-    {
-      key: "mycard",
-      label: "My Card",
-      icon: "heart",
-      onPress: () => {
-        if (active !== "mycard") navigation.navigate("MyCard");
-      },
     },
   ];
 
@@ -82,7 +80,7 @@ export default function BottomNavBar({ active }: Props) {
             return (
               <Pressable
                 key={tab.key}
-                onPress={tab.onPress}
+                onPress={() => handlePress(tab.key)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: true }}
                 accessibilityLabel={tab.label}
@@ -92,7 +90,11 @@ export default function BottomNavBar({ active }: Props) {
                 ]}
               >
                 <View style={styles.activeIconCircle}>
-                  <Feather name={tab.icon} size={18} color={colors.onPrimary} />
+                  <Feather
+                    name={tab.icon}
+                    size={tab.isCenter ? 19 : 18}
+                    color={colors.onPrimary}
+                  />
                   {tab.badge ? (
                     <View style={styles.badge}>
                       <Text style={styles.badgeText}>
@@ -109,16 +111,21 @@ export default function BottomNavBar({ active }: Props) {
           return (
             <Pressable
               key={tab.key}
-              onPress={tab.onPress}
+              onPress={() => handlePress(tab.key)}
               accessibilityRole="tab"
               accessibilityState={{ selected: false }}
               accessibilityLabel={tab.label}
               style={({ pressed }) => [
                 styles.inactiveCircle,
+                tab.isCenter && styles.centerInactiveCircle,
                 pressed && styles.inactivePressed,
               ]}
             >
-              <Feather name={tab.icon} size={19} color={colors.muted} />
+              <Feather
+                name={tab.icon}
+                size={tab.isCenter ? 21 : 19}
+                color={tab.isCenter ? colors.ink : colors.muted}
+              />
               {tab.badge ? (
                 <View style={styles.inactiveBadge}>
                   <Text style={styles.badgeText}>
@@ -147,11 +154,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.surface,
     paddingVertical: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     borderRadius: 36,
     borderWidth: 0,
     elevation: 8,
-    gap: 10,
+    gap: 8,
   },
   activeTab: {
     flexDirection: "row",
@@ -185,6 +192,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
+  },
+  centerInactiveCircle: {
+    borderRadius: 21,
   },
   inactivePressed: {
     opacity: 0.75,

@@ -10,8 +10,10 @@ export type CaptureDraft = {
   originalSize?: number;
 };
 
+import type { TabKey } from "./components/BottomNavBar";
+
 export type RootStackParamList = {
-  Home: undefined;
+  Home: { tab?: TabKey } | undefined;
   Folder: { id: string };
   Settings: undefined;
   /** pick: opened from the "Add document" launcher shortcut, so choose files first */

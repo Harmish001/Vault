@@ -192,7 +192,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
           .then(() => ToastAndroid.show(`${r.title} snoozed until tomorrow`, ToastAndroid.SHORT))
           .catch(() => undefined);
       } else {
-        navRef.navigate("Reminders");
+        navRef.navigate("Home", { tab: "reminders" });
       }
     } else if (data?.fileId) {
       navRef.navigate("FileDetails", { fileId: data.fileId });
