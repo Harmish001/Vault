@@ -35,6 +35,8 @@ import FavoritesScreen from "./src/screens/FavoritesScreen";
 import MyCardScreen from "./src/screens/MyCardScreen";
 import NotesScreen from "./src/screens/NotesScreen";
 import NoteEditScreen from "./src/screens/NoteEditScreen";
+import SmartShareScreen from "./src/screens/SmartShareScreen";
+import ShareQRScreen from "./src/screens/ShareQRScreen";
 
 import { refreshWidgets } from "./src/widget";
 import { syncFolderShortcuts } from "./src/folderShortcuts";
@@ -309,6 +311,8 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="MyCard" component={MyCardScreen} />
         <Stack.Screen name="Notes" component={NotesScreen} options={{ animation: "none" }} />
         <Stack.Screen name="NoteEdit" component={NoteEditScreen} />
+        <Stack.Screen name="SmartShare" component={SmartShareScreen} />
+        <Stack.Screen name="ShareQR" component={ShareQRScreen} options={{ animation: "slide_from_bottom" }} />
       </Stack.Navigator>
 
     </NavigationContainer>

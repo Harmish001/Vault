@@ -192,6 +192,21 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScreenHeader title="Settings" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 18 }}>
+        <Section title="Smart Share">
+          <View style={styles.block}>
+            <Text style={styles.body}>
+              Share selected files and notes securely via QR code — works on any network, from any
+              device. Files are end-to-end encrypted; the decryption key never leaves your phone.
+            </Text>
+            <Button
+              label="Share via QR code"
+              kind="secondary"
+              onPress={() => navigation.navigate("SmartShare")}
+              style={{ marginTop: 12 }}
+            />
+          </View>
+        </Section>
+
         <Section title="Security">
           <Row
             title="Require unlock"

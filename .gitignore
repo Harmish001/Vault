@@ -51,3 +51,4 @@ modules/*/android/.cxx/
 *.keystore
 !debug.keystore
 .agents
+vault-share
