@@ -97,8 +97,8 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
     }
     if (!ready) return Alert.alert("Add a few details first", "Add your name and at least one emergency contact, so the card has something to show.");
     Alert.alert(
-      "Put the card on your lock screen?",
-      "DocVault replaces your lock-screen wallpaper with this card. Your home-screen wallpaper stays as it is. Turn this off later and the lock screen shows your home-screen wallpaper.",
+      "Put the emergency QR code on your lock screen?",
+      "DocVault replaces your lock-screen wallpaper with an emergency QR code card. Your home-screen wallpaper stays as it is. Anyone scanning the QR code with any camera can view your emergency contacts and medical info.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -108,7 +108,7 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
             try {
               await applyLockCard(p, CARD_COLOR, settings.lockCardPhoto);
               await update({ lockCardWallpaper: true });
-              ToastAndroid.show("Lock the phone to see your card", ToastAndroid.SHORT);
+              ToastAndroid.show("Lock the phone to see your emergency QR code", ToastAndroid.SHORT);
             } catch {
               Alert.alert("Couldn't change the lock screen", "This phone doesn't let apps set the lock-screen wallpaper.");
             } finally {
@@ -182,7 +182,7 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
         <View style={styles.hero}>
           <Feather name="heart" size={22} color={CARD_COLOR} />
           <Text style={styles.heroText}>
-            If you're hurt or lose your phone, the person holding it can call your family and see your address, straight from the lock screen. Document numbers are never shown there.
+            If you're hurt or lose your phone, anyone can scan the emergency QR code on your lock screen with their camera to see your emergency contacts and medical info.
           </Text>
         </View>
 
@@ -219,7 +219,7 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
         <Section title="On the lock screen">
           {canLock && preview ? (
             <View style={styles.previewWrap}>
-              <Image source={{ uri: preview }} style={styles.preview} accessibilityLabel="Preview of the lock-screen card" />
+              <Image source={{ uri: preview }} style={styles.preview} accessibilityLabel="Preview of the lock-screen emergency QR code" />
             </View>
           ) : null}
           <ToggleRow
@@ -231,8 +231,8 @@ export default function MyCardScreen({ navigation }: NativeStackScreenProps<Root
           {canLock ? (
             <>
               <ToggleRow
-                title="Card as lock-screen wallpaper"
-                body="Overlays your emergency card on top of your current lock screen wallpaper."
+                title="Emergency QR code as wallpaper"
+                body="Overlays an emergency QR code on your lock screen wallpaper that any camera can scan."
                 value={!!settings.lockCardWallpaper}
                 disabled={busy}
                 onChange={toggleWallpaper}

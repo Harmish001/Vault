@@ -1,9 +1,9 @@
 import { requireOptionalNativeModule } from "expo";
 import * as Notifications from "expo-notifications";
-import { cardLines } from "./emergency-card";
+import { buildEmergencyQrText, cardLines } from "./emergency-card";
 import type { Profile } from "./types";
 
-export { BLOOD_GROUPS, cardLines } from "./emergency-card";
+export { BLOOD_GROUPS, buildEmergencyQrText, cardLines } from "./emergency-card";
 
 type CardInput = {
   name: string;
@@ -11,6 +11,8 @@ type CardInput = {
   footer: string;
   color: string;
   photo?: string;
+  qrPayload?: string;
+  primaryContact?: string;
 };
 
 const native = requireOptionalNativeModule<{
@@ -20,13 +22,22 @@ const native = requireOptionalNativeModule<{
   remove(): Promise<void>;
 }>("LockScreenCard");
 
-const toCard = (p: Profile, color: string, photo?: string): CardInput => ({
-  name: p.name.trim(),
-  lines: cardLines(p),
-  footer: p.note?.trim() ?? "",
-  color,
-  photo: photo || undefined,
-});
+const toCard = (p: Profile, color: string, photo?: string): CardInput => {
+  const first = p.contacts.find((c) => c.phone.trim());
+  const primaryContact = first
+    ? `${first.relation.trim() ? first.relation.trim() + " · " : ""}${first.name.trim()}  ${first.phone.trim()}`.trim()
+    : "";
+
+  return {
+    name: p.name.trim(),
+    lines: cardLines(p),
+    footer: p.note?.trim() ?? "",
+    color,
+    photo: photo || undefined,
+    qrPayload: buildEmergencyQrText(p),
+    primaryContact,
+  };
+};
 
 export const lockCardSupported = () => native?.isSupported() ?? false;
 export const previewLockCard = (p: Profile, color: string, photo?: string) => native?.preview(toCard(p, color, photo)) ?? Promise.resolve(null);
