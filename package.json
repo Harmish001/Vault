@@ -9,7 +9,7 @@
     "prebuild": "expo prebuild --platform android --no-install",
     "build:apk": "expo prebuild --platform android --no-install && cd android && ./gradlew assembleRelease",
     "postinstall": "patch-package",
-    "test": "npx --yes tsx scripts/test-scan.ts && npx --yes tsx scripts/test-reminders.ts && npx --yes tsx scripts/test-crypto.ts && npx --yes tsx scripts/test-ocr.ts && npx --yes tsx scripts/test-capture.ts && npx --yes tsx scripts/test-favorites.ts && npx --yes tsx scripts/test-naming.ts && npx --yes tsx scripts/test-sort.ts && npx --yes tsx scripts/test-mycard.ts && npx --yes tsx scripts/test-notes.ts",
+    "test": "npx --yes tsx scripts/test-scan.ts && npx --yes tsx scripts/test-reminders.ts && npx --yes tsx scripts/test-crypto.ts && npx --yes tsx scripts/test-ocr.ts && npx --yes tsx scripts/test-capture.ts && npx --yes tsx scripts/test-favorites.ts && npx --yes tsx scripts/test-naming.ts && npx --yes tsx scripts/test-sort.ts && npx --yes tsx scripts/test-mycard.ts && npx --yes tsx scripts/test-notes.ts && npx --yes tsx scripts/test-auto-backup.ts",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },

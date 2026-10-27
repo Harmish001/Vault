@@ -15,6 +15,9 @@ import { Button, PromptModal, ScreenHeader } from "../components/ui";
 import { useLock } from "../lock/LockProvider";
 import { requestReminderPermission } from "../reminders";
 import { autofillSelected, autofillSupported, openAutofillSettings, turnOffAutofill } from "../autofill";
+import { formatLastBackupTime } from "../auto-backup-plan";
+import { getAutoBackupPath, getAutoBackupStatus } from "../autoBackup";
+import * as Clipboard from "expo-clipboard";
 
 const OFFSET_OPTIONS = [
   { label: "90 days", d: 90 },
@@ -33,13 +36,45 @@ const LOCK_OPTIONS = [
 
 export default function SettingsScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Settings">) {
   const { settings, update } = useSettings();
-  const { files, folders, totalBytes, exportBackup, restoreBackup } = useVault();
+  const { files, folders, totalBytes, exportBackup, restoreBackup, performAutoBackup } = useVault();
   const insets = useSafeAreaInsets();
   const { runExternal } = useLock();
   const [exportPrompt, setExportPrompt] = useState(false);
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null); // picked file uri awaiting a password
-  const [busy, setBusy] = useState<null | "export" | "restore">(null);
+  const [busy, setBusy] = useState<null | "export" | "restore" | "autoBackup">(null);
   const [fillSelected, setFillSelected] = useState(autofillSelected);
+  const [resolvedBackupPath, setResolvedBackupPath] = useState<string>("");
+  const [backupFileSize, setBackupFileSize] = useState<number | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const p = await getAutoBackupPath();
+      setResolvedBackupPath(p);
+      const st = await getAutoBackupStatus();
+      if (st.exists) {
+        setBackupFileSize(st.size);
+      }
+    })();
+  }, [settings.lastAutoBackupTime]);
+
+  async function doAutoBackupNow() {
+    setBusy("autoBackup");
+    try {
+      const res = await performAutoBackup();
+      await update({ lastAutoBackupTime: Date.now(), autoBackupPath: res.path });
+      setResolvedBackupPath(res.path);
+      setBackupFileSize(res.size);
+      Alert.alert(
+        "Auto backup complete",
+        `Your latest full vault backup has been saved to:\n\n${res.path}\n\nSize: ${formatBytes(res.size)}. This overrides the previous backup.`
+      );
+    } catch (e) {
+      const msg = e instanceof Error && e.message === BACKUPS_UNAVAILABLE ? e.message : null;
+      Alert.alert("Auto backup failed", msg ?? "Couldn't write the backup file. Please ensure storage is accessible and try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   // The autofill choice is made in Android's settings, so check again whenever we come back.
   useEffect(() => {
@@ -299,9 +334,62 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
         </Section>
 
         <Section title="Backup">
-          <View style={styles.block}>
+          <Row
+            title="Weekly auto backup"
+            body="Automatically backs up all your vault data every week at 3:00 AM on Sunday."
+            right={
+              <Switch
+                value={settings.autoBackupEnabled ?? true}
+                onValueChange={(v) => update({ autoBackupEnabled: v })}
+                trackColor={{ true: colors.primary }}
+              />
+            }
+          />
+          {(settings.autoBackupEnabled ?? true) ? (
+            <View style={[styles.block, { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 }]}>
+              <Text style={styles.subLabel}>SCHEDULE</Text>
+              <Text style={styles.body}>Every Sunday at 3:00 AM (overwrites previous backup so only the latest is kept)</Text>
+
+              <Text style={[styles.subLabel, { marginTop: 12 }]}>BACKUP LOCATION</Text>
+              <Pressable
+                onPress={() => {
+                  const target = resolvedBackupPath || settings.autoBackupPath;
+                  if (target) {
+                    Clipboard.setStringAsync(target);
+                    Alert.alert("Path copied to clipboard", target);
+                  }
+                }}
+                style={styles.pathBox}
+                accessibilityRole="button"
+                accessibilityLabel="Copy backup file path"
+              >
+                <Text style={styles.pathText} numberOfLines={2} selectable>
+                  {resolvedBackupPath || settings.autoBackupPath || "Resolving path…"}
+                </Text>
+                <Text style={styles.pathHint}>Tap to copy path</Text>
+              </Pressable>
+
+              <Text style={[styles.subLabel, { marginTop: 12 }]}>LATEST STATUS</Text>
+              <Text style={styles.body}>
+                {settings.lastAutoBackupTime
+                  ? `${formatLastBackupTime(settings.lastAutoBackupTime)}${backupFileSize != null ? ` · ${formatBytes(backupFileSize)}` : ""}`
+                  : "Not yet backed up"}
+              </Text>
+
+              <Button
+                label="Back up now"
+                kind="secondary"
+                loading={busy === "autoBackup"}
+                onPress={doAutoBackupNow}
+                style={{ marginTop: 14 }}
+              />
+            </View>
+          ) : null}
+
+          <View style={[styles.block, { borderTopWidth: 1, borderTopColor: colors.line }]}>
+            <Text style={styles.rowTitle}>Manual export & restore</Text>
             <Text style={styles.body}>
-              Your documents live only on this phone. If it's lost, reset, or DocVault is uninstalled, they're gone unless you've saved a backup file somewhere safe, like Google Drive or a computer.
+              Export a standalone backup file (with optional AES-256 password) to Google Drive, USB or another phone, or restore from a backup file.
             </Text>
             <Button label="Export backup" loading={busy === "export"} onPress={() => setExportPrompt(true)} style={{ marginTop: 14 }} />
             <Button label="Restore from backup" kind="secondary" loading={busy === "restore"} onPress={startRestore} style={{ marginTop: 10 }} />
@@ -377,5 +465,16 @@ const styles = StyleSheet.create({
   pill: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, borderWidth: 1.5, borderColor: colors.line },
   pillOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   pillText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.ink },
+  subLabel: { fontFamily: fonts.semibold, fontSize: 12, letterSpacing: 0.5, color: colors.muted },
+  pathBox: {
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
+    padding: 10,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  pathText: { fontFamily: fonts.body, fontSize: 13, color: colors.ink },
+  pathHint: { fontFamily: fonts.body, fontSize: 11, color: colors.muted, marginTop: 4 },
   about: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.muted, textAlign: "center", paddingHorizontal: 12 },
 });

@@ -40,6 +40,8 @@ import { syncFolderShortcuts } from "./src/folderShortcuts";
 import { buildFillProfiles, syncAutofill } from "./src/autofill";
 import { showCardNotification } from "./src/emergency";
 import { parseBill } from "./src/capture/parseBill";
+import { getNextWeeklyBackupTime, isAutoBackupDue } from "./src/auto-backup-plan";
+import { scheduleWeeklyAutoBackupAlarm } from "./src/autoBackup";
 
 type AppLink = { action: "open" | "share" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
 
@@ -65,8 +67,8 @@ const navRef = createNavigationContainerRef<RootStackParamList>();
 const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg } };
 
 function Shell({ fontsReady }: { fontsReady: boolean }) {
-  const { ready: settingsReady, settings } = useSettings();
-  const { ready: vaultReady, files, folders, reminders, favorites, notes, profile, updateReminder, openFile, shareFile, error: vaultError } = useVault();
+  const { ready: settingsReady, settings, update: updateSettings } = useSettings();
+  const { ready: vaultReady, files, folders, reminders, favorites, notes, profile, updateReminder, openFile, shareFile, performAutoBackup, error: vaultError } = useVault();
   const { locked, relockDue } = useLock();
   const { hasShareIntent, shareIntent } = useShareIntentContext();
   const [navReady, setNavReady] = useState(false);
@@ -121,6 +123,40 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     if (appReady && !vaultError) syncReminders(entries, reminders, settings).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appReady, reminderSig]);
+
+  // Weekly auto backup: triggers at 3:00 AM every Sunday or catches up on startup/resume
+  const autoBackupBusy = useRef(false);
+  useEffect(() => {
+    if (!appReady || vaultError || settings.autoBackupEnabled === false) return;
+    scheduleWeeklyAutoBackupAlarm();
+
+    const checkAndRunBackup = async () => {
+      if (autoBackupBusy.current) return;
+      if (isAutoBackupDue(settings.lastAutoBackupTime)) {
+        autoBackupBusy.current = true;
+        try {
+          const res = await performAutoBackup();
+          await updateSettings({ lastAutoBackupTime: Date.now(), autoBackupPath: res.path });
+          console.log("[auto-backup] weekly backup completed:", res.path);
+        } catch (e) {
+          console.warn("[auto-backup] failed to perform auto backup:", e);
+        } finally {
+          autoBackupBusy.current = false;
+        }
+      }
+    };
+
+    checkAndRunBackup();
+
+    const nextDue = getNextWeeklyBackupTime();
+    const delay = Math.max(1000, nextDue.getTime() - Date.now());
+    const timer = setTimeout(() => {
+      checkAndRunBackup();
+    }, delay);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appReady, vaultError, settings.autoBackupEnabled, settings.lastAutoBackupTime, tick]);
 
   // Tapping a notification (or its Snooze / Done button) is handled once the app is unlocked.
   const lastResponse = Notifications.useLastNotificationResponse();

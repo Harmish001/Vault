@@ -166,6 +166,12 @@ export type Settings = {
   lockCardPhoto?: string;
   /** show separate tabs for All Notes and Secure / Passwords inside the Notes screen */
   notesTabsEnabled?: boolean;
+  /** weekly auto backup at 3:00 AM on Sunday */
+  autoBackupEnabled?: boolean;
+  /** timestamp when the last weekly auto backup was completed */
+  lastAutoBackupTime?: number;
+  /** resolved absolute path where the latest auto backup is stored */
+  autoBackupPath?: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -180,5 +186,6 @@ export const DEFAULT_SETTINGS: Settings = {
   widgetHidden: [],
   fileSort: "added",
   notesTabsEnabled: true,
+  autoBackupEnabled: true,
 };
 

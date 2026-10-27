@@ -88,7 +88,8 @@ What this protects against: someone reading the index out of a phone image, a le
 
 Upgrading from an older version: the old plain `index.json` is encrypted automatically at first start and the plain copy deleted. If the encrypted data can't be read (for example the phone's secure storage was reset), DocVault shows a recovery screen and **never overwrites anything**; restoring a backup brings you back.
 
-Backups: a backup contains a readable copy of the index so it can be restored on any phone. **Always set a backup password** (AES-256 zip). Without one, the backup file exposes everything in it.
+Backups: a backup contains a readable copy of the index so it can be restored on any phone. **Always set a backup password** (AES-256 zip) when sharing or manually exporting.
+- **Weekly auto backup:** DocVault automatically creates a full backup every Sunday at 3:00 AM, containing all documents, notes, reminders, favorites, profile and folder structure. It overwrites the previous backup file so only a single latest backup is retained under the standard Android backups folder: `/storage/emulated/0/Backups/DocVault/DocVault-backup.zip` (with fallback to app-specific external storage `Android/data/com.docvault.app/files/Backups/DocVault-backup.zip`). Can be triggered on demand or toggled in Settings → Backup.
 
 ## Reading details from scans
 
