@@ -36,22 +36,30 @@ export type UploadResult = {
   expiresAt: number; // epoch ms
 };
 
+/** The relay already has a live share with this code; pick another. */
+export class CodeTakenError extends Error {}
+
 /**
  * Upload the encrypted bundle to the relay.
  * Returns the token and expiry so we can show a countdown and build the QR URL.
  *
- * @param bundle  The pre-encrypted share bundle (JSON-stringified then encrypted).
- * @param ttlSec  Time-to-live in seconds (default 300 = 5 minutes).
+ * @param bundle    The pre-encrypted share bundle (JSON-stringified then encrypted).
+ * @param ttlSec    Time-to-live in seconds (default 300 = 5 minutes).
+ * @param code      6-digit code the PC can type instead of scanning.
+ * @param verifier  HMAC of the key, so the relay can check typed words without the key.
  */
 export async function uploadBundle(
   encryptedBundle: string,
-  ttlSec = 300,
+  ttlSec: number,
+  code: string,
+  verifier: string,
 ): Promise<UploadResult> {
   const res = await fetch(`${RELAY_BASE_URL}/api/share`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload: encryptedBundle, ttlSec }),
+    body: JSON.stringify({ payload: encryptedBundle, ttlSec, code, verifier }),
   });
+  if (res.status === 409) throw new CodeTakenError("Share code already in use");
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`Relay upload failed (${res.status}): ${text}`);
