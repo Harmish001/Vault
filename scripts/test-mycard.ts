@@ -1,6 +1,5 @@
-// Run with: npm test   (autofill suggestions and emergency card contents, no phone needed)
 import { buildFillProfiles, kindOfDetail } from "../src/autofill-data";
-import { cardLines } from "../src/emergency-card";
+import { buildEmergencyQrText, cardLines } from "../src/emergency-card";
 import type { Folder, Profile, VaultFile } from "../src/types";
 
 const assert = (ok: boolean, msg: string) => {
@@ -94,5 +93,20 @@ assert(lines.some((l) => l.label === "Address" && l.value === "12 MG Road - 3800
 const withoutAddress = cardLines({ ...card, showAddress: false });
 assert(!withoutAddress.some((l) => l.label === "Address"), "address can be hidden if turned off");
 assert(cardLines({ ...card, contacts: [], showMedical: false, showAddress: false }).length === 0, "nothing to show gives no lines");
+
+const qrText = buildEmergencyQrText(card);
+assert(qrText.includes("Name: Riya"), "QR text includes owner name");
+assert(qrText.includes("Amit (Husband): 99999 11111"), "QR text formats emergency contact with relationship");
+assert(qrText.includes("Mom: 88888 22222"), "QR text formats emergency contact without relationship");
+assert(!qrText.includes("No phone"), "QR text drops contact without phone number");
+assert(qrText.includes("Blood Group: O+"), "QR text includes blood group");
+assert(qrText.includes("Penicillin"), "QR text includes allergies");
+assert(qrText.includes("12 MG Road - 380001"), "QR text includes address");
+assert(qrText.includes("Reward if returned"), "QR text includes finder note");
+
+const qrWithoutMedOrAddr = buildEmergencyQrText({ ...card, showMedical: false, showAddress: false });
+assert(!qrWithoutMedOrAddr.includes("Penicillin"), "QR text excludes medical details when showMedical is false");
+assert(!qrWithoutMedOrAddr.includes("12 MG Road"), "QR text excludes address when showAddress is false");
+assert(qrWithoutMedOrAddr.includes("Amit (Husband): 99999 11111"), "QR text still keeps emergency contacts when medical/address hidden");
 
 console.log("\nAll My card tests passed.");

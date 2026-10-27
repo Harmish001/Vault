@@ -38,6 +38,7 @@ export type WidgetItem = {
   mime: string;
   storedAs: string;
   kind?: "file" | "note";
+  hasInfo?: boolean;
 };
 
 /** Favorite files and notes for the home-screen widget, in the user's order. Folders stay in the app. */
@@ -54,6 +55,7 @@ export function widgetItems(
     if (fav.kind === "file") {
       const f = byFileId.get(fav.id);
       if (f) {
+        const hasInfo = Boolean((f.fields && f.fields.some((field) => field.value?.trim())) || f.notes?.trim());
         out.push({
           id: f.id,
           name: f.name,
@@ -61,6 +63,7 @@ export function widgetItems(
           mime: f.mime,
           storedAs: f.storedAs,
           kind: "file",
+          hasInfo,
         });
       }
     } else if (fav.kind === "note") {
@@ -73,6 +76,7 @@ export function widgetItems(
           mime: "text/plain",
           storedAs: "",
           kind: "note",
+          hasInfo: true,
         });
       }
     }

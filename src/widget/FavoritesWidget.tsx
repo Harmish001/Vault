@@ -10,19 +10,23 @@ export const WIDGET_CAROUSEL = "FavoritesCarousel";
 export type WidgetCard = WidgetItem & { thumb: string | null };
 
 const hex = (c: string) => c as HexColor;
-const link = (action: "open" | "share", id: string) => `docvault://widget/${action}?id=${encodeURIComponent(id)}`;
+const link = (action: "open" | "share" | "copy", id: string) => `docvault://widget/${action}?id=${encodeURIComponent(id)}`;
 
 const ICON = {
   left: '<polyline points="15 18 9 12 15 6"/>',
   right: '<polyline points="9 18 15 12 9 6"/>',
   share:
     '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>',
+  copy:
+    '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 };
 const svg = (body: string, color: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 
 function Card({ card }: { card: WidgetCard }) {
   const k = kindColors[kindOf(card.mime, card.name)];
+  const isCopy = card.kind === "note" || !!card.hasInfo;
+  const action = isCopy ? "copy" : "share";
   return (
     <FlexWidget
       clickAction="OPEN_URI"
@@ -51,11 +55,11 @@ function Card({ card }: { card: WidgetCard }) {
         )}
         <FlexWidget
           clickAction="OPEN_URI"
-          clickActionData={{ uri: link("share", card.id) }}
-          accessibilityLabel={`Share ${card.name}`}
+          clickActionData={{ uri: link(action, card.id) }}
+          accessibilityLabel={`${isCopy ? "Copy" : "Share"} ${card.name}`}
           style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: hex(colors.primarySoft), justifyContent: "center", alignItems: "center" }}
         >
-          <SvgWidget svg={svg(ICON.share, colors.primary)} style={{ width: 16, height: 16 }} />
+          <SvgWidget svg={svg(isCopy ? ICON.copy : ICON.share, colors.primary)} style={{ width: 16, height: 16 }} />
         </FlexWidget>
       </FlexWidget>
       <FlexWidget style={{ width: "match_parent", flexDirection: "column" }}>

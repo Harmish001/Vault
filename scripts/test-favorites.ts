@@ -62,6 +62,23 @@ assert(items[1].folder === "Secure Note" && items[1].name === "Wi-Fi Pass", "not
 const hiddenNoteItems = widgetItems({ files, folders, favorites: order, notes: [testNote] }, ["dl", "n1"]);
 assert(hiddenNoteItems.map((i) => i.id).join() === "ins,pp", "notes can be hidden from widget");
 
+const filesWithInfo = [
+  ...files,
+  { ...file("aadhaar", "Aadhaar.pdf", "ids"), fields: [{ id: "f1", label: "Aadhaar", value: "1234 5678" }] },
+  { ...file("bill", "Bill.pdf", "dad"), notes: "Paid in full" },
+];
+const itemsWithInfo = widgetItems({ files: filesWithInfo, folders, notes: [testNote], favorites: [
+  { kind: "file", id: "pp" },
+  { kind: "file", id: "aadhaar" },
+  { kind: "file", id: "bill" },
+  { kind: "note", id: "n1" }
+] }, []);
+
+assert(itemsWithInfo[0].hasInfo === false, "plain file has hasInfo false (shows share button)");
+assert(itemsWithInfo[1].hasInfo === true, "file with fields has hasInfo true (shows copy button)");
+assert(itemsWithInfo[2].hasInfo === true, "file with notes has hasInfo true (shows copy button)");
+assert(itemsWithInfo[3].hasInfo === true, "note has hasInfo true (shows copy button)");
+
 assert(widgetItems({ files, folders }, []).length === 0, "no favorites means an empty widget");
 
 console.log("\nAll favorites tests passed.");

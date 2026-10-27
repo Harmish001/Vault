@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AppState, Linking, Share, Text, ToastAndroid, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
@@ -38,19 +39,22 @@ import NoteEditScreen from "./src/screens/NoteEditScreen";
 import { refreshWidgets } from "./src/widget";
 import { syncFolderShortcuts } from "./src/folderShortcuts";
 import { buildFillProfiles, syncAutofill } from "./src/autofill";
+import { syncDocumentsProvider } from "./src/documents-provider";
 import { showCardNotification } from "./src/emergency";
 import { parseBill } from "./src/capture/parseBill";
+import { getNextWeeklyBackupTime, isAutoBackupDue } from "./src/auto-backup-plan";
+import { scheduleWeeklyAutoBackupAlarm } from "./src/autoBackup";
 
-type AppLink = { action: "open" | "share" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
+type AppLink = { action: "open" | "share" | "copy" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
 
 /**
- * Widget taps: docvault://widget/open?id=… or docvault://widget/share?id=…
+ * Widget taps: docvault://widget/open?id=…, docvault://widget/share?id=…, or docvault://widget/copy?id=…
  * Launcher shortcuts: docvault://quick/scan, /add, /reminder, and pinned folders as docvault://quick/folder?id=…
  */
 function parseAppLink(url: string | null): AppLink | null {
   if (!url) return null;
-  const w = /^docvault:\/\/widget\/(open|share)\?id=([^&]+)/.exec(url);
-  if (w) return { action: w[1] as "open" | "share", id: decodeURIComponent(w[2]) };
+  const w = /^docvault:\/\/widget\/(open|share|copy)\?id=([^&]+)/.exec(url);
+  if (w) return { action: w[1] as "open" | "share" | "copy", id: decodeURIComponent(w[2]) };
   const q = /^docvault:\/\/quick\/(scan|add|reminder|folder)(?:\?id=([^&]+))?/.exec(url);
   if (!q) return null;
   if (q[1] === "folder") return q[2] ? { action: "folder", id: decodeURIComponent(q[2]) } : null;
@@ -65,8 +69,8 @@ const navRef = createNavigationContainerRef<RootStackParamList>();
 const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg } };
 
 function Shell({ fontsReady }: { fontsReady: boolean }) {
-  const { ready: settingsReady, settings } = useSettings();
-  const { ready: vaultReady, files, folders, reminders, favorites, notes, profile, updateReminder, openFile, shareFile, error: vaultError } = useVault();
+  const { ready: settingsReady, settings, update: updateSettings } = useSettings();
+  const { ready: vaultReady, files, folders, reminders, favorites, notes, profile, updateReminder, openFile, shareFile, performAutoBackup, error: vaultError } = useVault();
   const { locked, relockDue } = useLock();
   const { hasShareIntent, shareIntent } = useShareIntentContext();
   const [navReady, setNavReady] = useState(false);
@@ -122,6 +126,40 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appReady, reminderSig]);
 
+  // Weekly auto backup: triggers at 3:00 AM every Sunday or catches up on startup/resume
+  const autoBackupBusy = useRef(false);
+  useEffect(() => {
+    if (!appReady || vaultError || settings.autoBackupEnabled === false) return;
+    scheduleWeeklyAutoBackupAlarm();
+
+    const checkAndRunBackup = async () => {
+      if (autoBackupBusy.current) return;
+      if (isAutoBackupDue(settings.lastAutoBackupTime)) {
+        autoBackupBusy.current = true;
+        try {
+          const res = await performAutoBackup();
+          await updateSettings({ lastAutoBackupTime: Date.now(), autoBackupPath: res.path });
+          console.log("[auto-backup] weekly backup completed:", res.path);
+        } catch (e) {
+          console.warn("[auto-backup] failed to perform auto backup:", e);
+        } finally {
+          autoBackupBusy.current = false;
+        }
+      }
+    };
+
+    checkAndRunBackup();
+
+    const nextDue = getNextWeeklyBackupTime();
+    const delay = Math.max(1000, nextDue.getTime() - Date.now());
+    const timer = setTimeout(() => {
+      checkAndRunBackup();
+    }, delay);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appReady, vaultError, settings.autoBackupEnabled, settings.lastAutoBackupTime, tick]);
+
   // Tapping a notification (or its Snooze / Done button) is handled once the app is unlocked.
   const lastResponse = Notifications.useLastNotificationResponse();
   const handledNote = useRef<string | null>(null);
@@ -156,7 +194,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
           .then(() => ToastAndroid.show(`${r.title} snoozed until tomorrow`, ToastAndroid.SHORT))
           .catch(() => undefined);
       } else {
-        navRef.navigate("Reminders");
+        navRef.navigate("Home", { tab: "reminders" });
       }
     } else if (data?.fileId) {
       navRef.navigate("FileDetails", { fileId: data.fileId });
@@ -179,6 +217,12 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     if (!appReady || vaultError) return;
     syncAutofill(settings.autofillEnabled ? buildFillProfiles(folders, files, profile) : null);
   }, [appReady, vaultError, settings.autofillEnabled, folders, files, profile]);
+
+  // System file picker (Documents Provider) reads an encrypted snapshot refreshed while the app is unlocked.
+  useEffect(() => {
+    if (!appReady || vaultError) return;
+    syncDocumentsProvider(folders, files, settings.documentsProviderEnabled !== false);
+  }, [appReady, vaultError, settings.documentsProviderEnabled, folders, files]);
 
   // Android drops notifications on restart; put the emergency card back on the lock screen.
   useEffect(() => {
@@ -213,7 +257,12 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     const f = files.find((x) => x.id === appLink.id);
     const n = notes.find((x) => x.id === appLink.id);
     if (n) {
-      if (appLink.action === "share") {
+      if (appLink.action === "copy") {
+        const text = [n.title?.trim(), n.content?.trim()].filter(Boolean).join("\n\n");
+        Clipboard.setStringAsync(text || n.title || "")
+          .then(() => ToastAndroid.show("Note copied to clipboard", ToastAndroid.SHORT))
+          .catch(() => ToastAndroid.show("Couldn't copy note", ToastAndroid.SHORT));
+      } else if (appLink.action === "share") {
         Share.share({ title: n.title, message: n.content }).catch(() => Alert.alert("Couldn't share this note"));
       } else {
         navRef.navigate("NoteEdit", { id: n.id });
@@ -222,6 +271,18 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     }
     if (!f) {
       ToastAndroid.show("That item is no longer in DocVault.", ToastAndroid.SHORT);
+    } else if (appLink.action === "copy") {
+      const parts: string[] = [];
+      if (f.fields?.length) {
+        for (const field of f.fields) {
+          if (field.value?.trim()) parts.push(`${field.label}: ${field.value.trim()}`);
+        }
+      }
+      if (f.notes?.trim()) parts.push(f.notes.trim());
+      const toCopy = parts.join("\n") || f.name;
+      Clipboard.setStringAsync(toCopy)
+        .then(() => ToastAndroid.show("Details copied to clipboard", ToastAndroid.SHORT))
+        .catch(() => ToastAndroid.show("Couldn't copy details", ToastAndroid.SHORT));
     } else if (appLink.action === "share") {
       shareFile(f).catch(() => Alert.alert("Couldn't share this file"));
     } else {

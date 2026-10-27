@@ -16,6 +16,7 @@ import { openFile } from "../openFile";
 const safeName = (name: string) => name.replace(/[\\/:*?"<>|]/g, "_");
 import { SCANNER_TMP, SCAN_OUT } from "../scan/paths";
 import { folderColors } from "../theme";
+import { saveAutoBackup } from "../autoBackup";
 
 const DOC = FileSystem.documentDirectory ?? "";
 const CACHE = FileSystem.cacheDirectory ?? "";
@@ -255,6 +256,8 @@ type Ctx = {
   /** saveTo: a document uri picked with Android's "save as" screen; without it the share sheet opens */
   exportBackup: (password?: string, saveTo?: string) => Promise<void>;
   restoreBackup: (pickedUri: string, password?: string) => Promise<void>;
+  /** creates a full backup directly under the standard auto-backup folder, overriding the previous backup */
+  performAutoBackup: () => Promise<{ path: string; size: number }>;
   totalBytes: number;
 };
 
@@ -693,6 +696,23 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     await Sharing.shareAsync(out, { mimeType: "application/zip", dialogTitle: "Save your DocVault backup" });
   };
 
+  const performAutoBackup: Ctx["performAutoBackup"] = async () => {
+    if (!zipReady()) throw new Error(BACKUPS_UNAVAILABLE);
+    await queue.current; // let pending writes finish first
+    const out = CACHE + "DocVault-auto-backup.tmp";
+    await FileSystem.deleteAsync(out, { idempotent: true });
+    const src = stripFileScheme(ROOT).replace(/\/$/, "");
+    const dst = stripFileScheme(out);
+    await FileSystem.writeAsStringAsync(INDEX_PLAIN, JSON.stringify(latest.current));
+    try {
+      await zip(src, dst);
+    } finally {
+      await removePlainIndexes();
+    }
+    const res = await saveAutoBackup(out);
+    return { path: res.path, size: res.size };
+  };
+
   const restoreBackup: Ctx["restoreBackup"] = async (pickedUri, password) => {
     if (!zipReady()) throw new Error(BACKUPS_UNAVAILABLE);
     await queue.current;
@@ -792,6 +812,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     canZip: zipReady(),
     exportBackup,
     restoreBackup,
+    performAutoBackup,
     totalBytes,
   };
 
