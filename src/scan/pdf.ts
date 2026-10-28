@@ -114,9 +114,16 @@ export function buildPdf(pages: PdfPage[]): Uint8Array {
     const dispH = sideways ? info.width : info.height;
     const boxW = dispH >= dispW ? A4_SHORT : A4_LONG;
     const boxH = dispH >= dispW ? A4_LONG : A4_SHORT;
-    const scale = Math.min(boxW / dispW, boxH / dispH);
-    const w = info.width * scale; // page size *before* /Rotate is applied
+    const margin = 16;
+    const availW = Math.max(10, boxW - margin * 2);
+    const availH = Math.max(10, boxH - margin * 2);
+    const scale = Math.min(availW / dispW, availH / dispH);
+    const w = info.width * scale; // image width *before* /Rotate is applied
     const h = info.height * scale;
+    const pageW = w + margin * 2;
+    const pageH = h + margin * 2;
+    const x = margin;
+    const y = margin;
 
     const pageId = pageIds[i];
     const contentId = pageId + 1;
@@ -125,12 +132,12 @@ export function buildPdf(pages: PdfPage[]): Uint8Array {
     startObj(pageId);
     push(
       enc(
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(w)} ${num(h)}] /Rotate ${rot} ` +
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(pageW)} ${num(pageH)}] /Rotate ${rot} ` +
           `/Resources << /XObject << /Im0 ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>\nendobj\n`
       )
     );
 
-    const stream = enc(`q\n${num(w)} 0 0 ${num(h)} 0 0 cm\n/Im0 Do\nQ\n`);
+    const stream = enc(`q\n${num(w)} 0 0 ${num(h)} ${num(x)} ${num(y)} cm\n/Im0 Do\nQ\n`);
     startObj(contentId);
     push(enc(`<< /Length ${stream.length} >>\nstream\n`));
     push(stream);

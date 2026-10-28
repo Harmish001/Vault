@@ -46,6 +46,18 @@ const KINDS: [RegExp, string, Qualifier][] = [
   [/WARRANTY/, "Warranty Card", "year"],
   [/TAX INVOICE|\bINVOICE\b/, "Invoice", "month"],
   [/\bRECEIPT\b/, "Receipt", "month"],
+  [/ELECTRIC(ITY)?\s*BILL|POWER DISTRIBUTION|ELECTRIC\s*BILL/, "Electricity Bill", "month"],
+  [/WATER\s*BILL/, "Water Bill", "month"],
+  [/GAS\s*BILL|\bLPG\b|\bPNG\b/, "Gas Bill", "month"],
+  [/BROADBAND|FIBER|\bWIFI\b\s*BILL/, "Broadband Bill", "month"],
+  [/MUTUAL\s*FUND|DEMAT|CAS STATEMENT/, "Investment Statement", "month"],
+  [/OFFER\s*LETTER|APPOINTMENT\s*LETTER/, "Offer Letter", "person"],
+  [/EXPERIENCE\s*(LETTER|CERTIFICATE)|RELIEVING\s*LETTER/, "Experience Letter", "person"],
+  [/DEGREE(\s*CERTIFICATE)?|DIPLOMA(\s*CERTIFICATE)?/, "Degree Certificate", "person"],
+  [/DISCHARGE\s*SUMMARY|HOSPITAL\s*BILL/, "Medical Report", "month"],
+  [/AFFIDAVIT|UNDERTAKING/, "Affidavit", "year"],
+  [/PROPERTY\s*TAX/, "Property Tax Receipt", "year"],
+  [/INCOME\s*TAX\s*RETURN|\bITR\b/, "ITR Acknowledgement", "year"],
   [/\bCERTIFICATE\b/, "Certificate", "person"],
 ];
 
@@ -90,6 +102,19 @@ export function suggestName({ text, det, bill, person, now = new Date() }: NameI
     const title = bill.title.value.trim();
     const due = bill.dueOn?.value ?? latest;
     return join(/\b(bill|invoice|statement)\b/i.test(title) ? title : `${title} Bill`, due ? monthYear(due) : undefined);
+  }
+
+  if (/\b(AADHAAR|UIDAI|UNIQUE IDENTIFICATION)\b|आधार/.test(up)) {
+    return join("Aadhaar", person);
+  }
+  if (/\b(INCOME TAX DEPARTMENT|PERMANENT ACCOUNT NUMBER|PAN CARD)\b/.test(up)) {
+    return join("PAN card", person);
+  }
+  if (/\b(DRIVING LICEN[CS]E|MOTOR VEHICLES DEPARTMENT)\b/.test(up)) {
+    return join("Driving licence", person);
+  }
+  if (/\b(VOTER ID|ELECTION COMMISSION OF INDIA|ELECTOR PHOTO)\b/.test(up)) {
+    return join("Voter ID", person);
   }
 
   for (const [re, label, q] of KINDS) {
