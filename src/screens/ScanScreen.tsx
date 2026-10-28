@@ -25,6 +25,7 @@ import { FolderPicker } from "../components/FolderPicker";
 import { Button, EmptyState, PromptModal, ScreenHeader } from "../components/ui";
 import { parseBill, BillParseResult } from "../capture/parseBill";
 import { ImageCropperModal } from "../components/ImageCropperModal";
+import { compressDocument } from "../compress/compressor";
 
 // Safe dynamic import to allow running in Expo Go without crashing
 let DocumentScanner: { scanDocument: (options?: { maxNumDocuments?: number }) => Promise<{ status?: string; scannedImages?: string[] }> } | null = null;
@@ -77,6 +78,7 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
   const [remindBill, setRemindBill] = useState(false);
   const [editField, setEditField] = useState<DetectedField | null>(null);
   const [suggested, setSuggested] = useState<string | null>(null);
+  const [compressPreset, setCompressPreset] = useState<string>("off");
   const ocrText = useRef("");
   const nameEdited = useRef(false);
   const stageRef = useRef(stage);
@@ -317,6 +319,24 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
         }
       }
 
+      if (compressPreset !== "off") {
+        const targetMap: Record<string, number> = {
+          "50kb": 50 * 1024,
+          "100kb": 100 * 1024,
+          "200kb": 200 * 1024,
+          "500kb": 500 * 1024,
+        };
+        const maxB = targetMap[compressPreset];
+        if (maxB) {
+          for (let i = 0; i < incoming.length; i++) {
+            const item = incoming[i];
+            const mime = item.mime ?? (item.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+            const comp = await compressDocument(item.uri, mime, maxB);
+            incoming[i] = { ...item, uri: comp.uri };
+          }
+        }
+      }
+
       const out = await addFiles(dest, incoming);
       if (out.added === 0) throw new Error("nothing saved");
       await Promise.all(pages.map((p) => FileSystem.deleteAsync(p.uri, { idempotent: true }).catch(() => undefined)));
@@ -513,6 +533,34 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
                 </Pressable>
               ))}
             </View>
+
+            <View style={styles.compressRow}>
+              <Text style={styles.compressRowLabel}>Size limit for uploads:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                {[
+                  { id: "off", label: "Original" },
+                  { id: "200kb", label: "< 200 KB" },
+                  { id: "500kb", label: "< 500 KB" },
+                  { id: "100kb", label: "< 100 KB" },
+                  { id: "50kb", label: "< 50 KB" },
+                ].map((p) => {
+                  const on = compressPreset === p.id;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => setCompressPreset(p.id)}
+                      style={[styles.compressPill, on && styles.compressPillOn]}
+                      accessibilityRole="button"
+                    >
+                      <Text style={[styles.compressPillText, on && { color: colors.onPrimary }]}>
+                        {p.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
             <View style={{ flexDirection: "row", gap: 10 }}>
               <Button label="Camera" kind="secondary" disabled={saving} onPress={scan} style={{ flex: 1 }} />
               <Button label="Gallery" kind="secondary" disabled={saving} onPress={pickImages} style={{ flex: 1 }} />
@@ -857,4 +905,29 @@ const styles = StyleSheet.create({
   segItem: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 10 },
   segOn: { backgroundColor: colors.primary },
   segText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.ink },
+  compressRow: {
+    gap: 6,
+  },
+  compressRowLabel: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.muted,
+  },
+  compressPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  compressPillOn: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  compressPillText: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: colors.ink,
+  },
 });

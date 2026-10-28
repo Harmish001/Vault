@@ -27,6 +27,8 @@ export const colors = {
   primarySoft: "#F7EEF0", // info panels, tinted cards
   primaryLine: "#E8D3D8", // borders of tinted cards
   accent: "#2F5D4A", // pine green secondary: second floating button, unlock button
+  accentSoft: "#EBF2EE", // soft tint for success and compressor states
+  accentLine: "#C9DDD2", // border for accent soft containers
   onPrimary: "#FFFFFF", // text and icons on primary, accent and primaryDark
   onDarkMuted: "#BDB3B5", // secondary text on primaryDark
   star: "#7A1F35", // favorite star
