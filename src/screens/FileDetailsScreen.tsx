@@ -19,6 +19,7 @@ import {
   addYears,
   cleanTag,
   folderPath,
+  formatBytes,
   formatDate,
   maskValue,
   parseISODate,
@@ -32,6 +33,7 @@ import {
   PromptModal,
   ScreenHeader,
 } from "../components/ui";
+import { CompressModal } from "../components/CompressModal";
 
 export default function FileDetailsScreen({
   navigation,
@@ -49,6 +51,7 @@ export default function FileDetailsScreen({
   );
   const [tagPrompt, setTagPrompt] = useState(false);
   const [notesPrompt, setNotesPrompt] = useState(false);
+  const [compress, setCompress] = useState(false);
   const expiry = useExpiry();
 
   useEffect(() => {
@@ -117,6 +120,26 @@ export default function FileDetailsScreen({
             Add an expiry date to get a reminder, and save the details you copy
             most.
           </Text>
+        </View>
+
+        <View style={styles.sizeCard}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={styles.sizeLabel}>Document Size</Text>
+            <Text style={styles.sizeValue}>
+              {formatBytes(file.size)} • {file.mime === "application/pdf" ? "PDF Document" : "Photo / Image"}
+            </Text>
+          </View>
+          {file.mime === "application/pdf" ||
+          file.name.toLowerCase().endsWith(".pdf") ||
+          file.mime.startsWith("image/") ||
+          /\.(jpe?g|png|webp|heic)$/i.test(file.name) ? (
+            <Button
+              label="Compress size"
+              kind="secondary"
+              onPress={() => setCompress(true)}
+              style={styles.compressBtn}
+            />
+          ) : null}
         </View>
 
         <Section title="Expiry">
@@ -325,6 +348,17 @@ export default function FileDetailsScreen({
           setFieldEdit(null);
         }}
       />
+      <CompressModal
+        visible={compress}
+        target={{
+          uri: fileUri(file),
+          name: file.name,
+          mime: file.mime,
+          size: file.size,
+          vaultFile: file,
+        }}
+        onClose={() => setCompress(false)}
+      />
     </View>
   );
 }
@@ -420,5 +454,29 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: "center",
     paddingHorizontal: 12,
+  },
+  sizeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    padding: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    gap: 12,
+  },
+  sizeLabel: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.muted,
+  },
+  sizeValue: {
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+    color: colors.ink,
+  },
+  compressBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
 });

@@ -22,6 +22,8 @@ import { isFavorite } from "../favorites";
 import type { Folder, Note, VaultFile } from "../types";
 import { useFileActions, useFolderActions } from "../components/actions";
 import { EmptyState } from "../components/ui";
+import * as DocumentPicker from "expo-document-picker";
+import { CompressModal, CompressTarget } from "../components/CompressModal";
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -32,8 +34,33 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
   const { folders, files, reminders, notes, fileUri, openFile, favorites, toggleFavorite, shareFile } = useVault();
   const { noDeviceLock } = useLock();
   const [query, setQuery] = useState("");
+  const [compressTarget, setCompressTarget] = useState<CompressTarget | null>(null);
   const fileActions = useFileActions();
   const folderActions = useFolderActions();
+
+  async function pickAndCompress() {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ["image/*", "application/pdf"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      setCompressTarget({
+        uri: asset.uri,
+        name: asset.name,
+        mime:
+          asset.mimeType ||
+          (asset.name.toLowerCase().endsWith(".pdf")
+            ? "application/pdf"
+            : "image/jpeg"),
+        size: asset.size,
+      });
+    } catch {
+      Alert.alert("Couldn't open file picker");
+    }
+  }
 
   // Reminders due within a week or overdue
   const dueSoon = useMemo(() => {
@@ -271,6 +298,30 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
               </Pressable>
             </View>
 
+            {/* Quick Compressor Tool */}
+            <Pressable
+              onPress={pickAndCompress}
+              style={({ pressed }) => [styles.compressBanner, pressed && { opacity: 0.9 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Compress PDF or Photos"
+            >
+              <View style={styles.compressIconBox}>
+                <Feather name="minimize-2" size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={styles.compressTitle}>Compress PDF & Photos</Text>
+                  <View style={styles.compressBadge}>
+                    <Text style={styles.compressBadgeText}>Under 50-500 KB</Text>
+                  </View>
+                </View>
+                <Text style={styles.compressSub} numberOfLines={1}>
+                  Fit photo & doc size limits for UPSC, SSC & portal uploads
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={colors.muted} />
+            </Pressable>
+
             {/* Favorites Section */}
             <View>
               <View style={styles.sectionHead}>
@@ -503,6 +554,11 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
       </ScrollView>
       {fileActions.element}
       {folderActions.element}
+      <CompressModal
+        visible={!!compressTarget}
+        target={compressTarget}
+        onClose={() => setCompressTarget(null)}
+      />
     </View>
   );
 }
@@ -578,6 +634,46 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 12,
     color: colors.muted,
+  },
+  compressBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    gap: 12,
+  },
+  compressIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compressTitle: {
+    fontFamily: fonts.heading,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  compressBadge: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  compressBadgeText: {
+    fontFamily: fonts.semibold,
+    fontSize: 10,
+    color: colors.onPrimary,
+  },
+  compressSub: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 2,
   },
   sectionHead: {
     flexDirection: "row",

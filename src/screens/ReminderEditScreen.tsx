@@ -35,6 +35,7 @@ import { CATEGORY_DEFAULTS } from "../capture/billers";
 import { findMatch } from "../capture/match";
 import { readPageText } from "../ocr/read";
 import { buildPdf, PdfPage } from "../scan/pdf";
+import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import * as FileSystem from "expo-file-system/legacy";
 import { base64ToBytes, bytesToBase64 } from "../scan/base64";
 import { SCAN_OUT } from "../scan/paths";
@@ -322,7 +323,14 @@ export default function ReminderEditScreen({
             // Multiple images or scan: create single PDF using buildPdf
             const built: PdfPage[] = [];
             for (const imgUri of draft.imageUris) {
-              const b64 = await FileSystem.readAsStringAsync(imgUri, { encoding: FileSystem.EncodingType.Base64 });
+              let uri = imgUri;
+              try {
+                const r = await manipulateAsync(imgUri, [], { compress: 0.95, format: SaveFormat.JPEG });
+                uri = r.uri;
+              } catch {
+                // fallback
+              }
+              const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
               built.push({ jpeg: base64ToBytes(b64), rotate: 0 });
             }
             const stamp = toISODate(new Date()).replace(/-/g, "");

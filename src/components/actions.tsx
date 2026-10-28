@@ -11,6 +11,7 @@ import { canPinFolders, pinFolder } from "../folderShortcuts";
 import { FolderPicker } from "./FolderPicker";
 import { FieldModal, useExpiry } from "./QuickDetails";
 import { ActionMenu, PromptModal } from "./ui";
+import { CompressModal } from "./CompressModal";
 
 /** Menu + rename + move + delete for one file. Render `element` once in the screen. */
 export function useFileActions() {
@@ -20,8 +21,16 @@ export function useFileActions() {
   const [menu, setMenu] = useState(false);
   const [rename, setRename] = useState(false);
   const [move, setMove] = useState(false);
+  const [compress, setCompress] = useState(false);
   const [addDetail, setAddDetail] = useState<{ field?: FileField } | null>(null);
   const expiry = useExpiry();
+
+  const isCompressible =
+    target &&
+    (target.mime === "application/pdf" ||
+      target.name.toLowerCase().endsWith(".pdf") ||
+      target.mime.startsWith("image/") ||
+      /\.(jpe?g|png|webp|heic)$/i.test(target.name));
 
   const element = (
     <>
@@ -38,6 +47,15 @@ export function useFileActions() {
                   icon: "info",
                   onPress: () => navigation.navigate("FileDetails", { fileId: target.id }),
                 },
+                ...(isCompressible
+                  ? [
+                      {
+                        label: "Compress file size",
+                        icon: "minimize-2" as const,
+                        onPress: () => setCompress(true),
+                      },
+                    ]
+                  : []),
                 { label: "Add a detail", icon: "plus-square", onPress: () => setAddDetail({}) },
                 {
                   label: target.expiresOn ? "Change expiry date" : "Set expiry date",
@@ -104,6 +122,21 @@ export function useFileActions() {
             .then(() => ToastAndroid.show(`${field.label} saved`, ToastAndroid.SHORT))
             .catch(() => Alert.alert("Couldn't save this detail"));
         }}
+      />
+      <CompressModal
+        visible={compress}
+        target={
+          target
+            ? {
+                uri: vault.fileUri(target),
+                name: target.name,
+                mime: target.mime,
+                size: target.size,
+                vaultFile: target,
+              }
+            : null
+        }
+        onClose={() => setCompress(false)}
       />
     </>
   );

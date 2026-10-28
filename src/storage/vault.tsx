@@ -9,7 +9,7 @@ import { loadKey, randomNonce, replaceKey } from "../security/keystore";
 import { decryptString, encryptString } from "../security/crypto";
 import { pruneFavorites, toggleFavorite as toggleFav } from "../favorites";
 
-export type FilePatch = Partial<Pick<VaultFile, "notes" | "tags" | "expiresOn" | "fields">>;
+export type FilePatch = Partial<Pick<VaultFile, "notes" | "tags" | "expiresOn" | "fields" | "size">>;
 import { extOf, guessMime, mergeTags, stripFileScheme, uid, uniqueName } from "../utils";
 import { openFile } from "../openFile";
 

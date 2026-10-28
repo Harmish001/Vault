@@ -24,6 +24,8 @@ import { SCAN_OUT } from "../scan/paths";
 import { FolderPicker } from "../components/FolderPicker";
 import { Button, EmptyState, PromptModal, ScreenHeader } from "../components/ui";
 import { parseBill, BillParseResult } from "../capture/parseBill";
+import { ImageCropperModal } from "../components/ImageCropperModal";
+import { compressDocument } from "../compress/compressor";
 
 // Safe dynamic import to allow running in Expo Go without crashing
 let DocumentScanner: { scanDocument: (options?: { maxNumDocuments?: number }) => Promise<{ status?: string; scannedImages?: string[] }> } | null = null;
@@ -76,6 +78,7 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
   const [remindBill, setRemindBill] = useState(false);
   const [editField, setEditField] = useState<DetectedField | null>(null);
   const [suggested, setSuggested] = useState<string | null>(null);
+  const [compressPreset, setCompressPreset] = useState<string>("off");
   const ocrText = useRef("");
   const nameEdited = useRef(false);
   const stageRef = useRef(stage);
@@ -87,6 +90,55 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
   const started = useRef(false);
   const allowLeave = useRef(false);
 
+  const [cropTarget, setCropTarget] = useState<{ id: string; uri: string; isNew?: boolean } | null>(null);
+
+  const handleCropDone = (croppedUri: string) => {
+    if (!cropTarget) return;
+    const targetId = cropTarget.id;
+    delete ocrCache.current[targetId];
+
+    setPages((p) => {
+      const exists = p.some((x) => x.id === targetId);
+      if (exists) {
+        return p.map((x) => (x.id === targetId ? { ...x, uri: croppedUri } : x));
+      }
+      return [...p, { id: targetId, uri: croppedUri, rotate: 0 }];
+    });
+    setCropTarget(null);
+  };
+
+  const handleCropCancel = () => {
+    if (!cropTarget) return;
+    if (cropTarget.isNew) {
+      setPages((p) => [...p, { id: cropTarget.id, uri: cropTarget.uri, rotate: 0 }]);
+    }
+    setCropTarget(null);
+  };
+
+  const pickImages = useCallback(async () => {
+    const remaining = MAX_PAGES - pagesRef.current.length;
+    if (remaining <= 0) {
+      Alert.alert("Page limit reached", `A scan can have up to ${MAX_PAGES} pages. Save this one, then start another.`);
+      return;
+    }
+    try {
+      const res = await runExternal(() =>
+        DocumentPicker.getDocumentAsync({ type: "image/*", multiple: true })
+      );
+      if (!res.canceled && res.assets?.length) {
+        if (res.assets.length === 1) {
+          const singleId = uid();
+          setCropTarget({ id: singleId, uri: res.assets[0].uri, isNew: true });
+        } else {
+          const added: Page[] = res.assets.slice(0, remaining).map((a) => ({ id: uid(), uri: a.uri, rotate: 0 }));
+          setPages((p) => [...p, ...added]);
+        }
+      }
+    } catch {
+      Alert.alert("Couldn't pick images", "Please try again.");
+    }
+  }, [runExternal]);
+
   const scan = useCallback(async () => {
     const remaining = MAX_PAGES - pagesRef.current.length;
     if (remaining <= 0) {
@@ -96,34 +148,11 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
 
     if (!DocumentScanner) {
       Alert.alert(
-        "Scanner unavailable in Expo Go",
-        "The camera scanner requires custom native code and Google Play Services, which are only included in a built APK.\n\nWould you like to pick image(s) from your device to test the scan & save workflow?",
+        "Camera scanner unavailable in Expo Go",
+        "The camera scanner requires custom native code included in a built APK.\n\nWould you like to select image(s) from your device gallery to convert to PDF?",
         [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => {
-              if (pagesRef.current.length === 0) navigation.goBack();
-            },
-          },
-          {
-            text: "Pick Images",
-            onPress: async () => {
-              try {
-                const res = await runExternal(() =>
-                  DocumentPicker.getDocumentAsync({ type: "image/*", multiple: true })
-                );
-                if (!res.canceled && res.assets?.length) {
-                  const added: Page[] = res.assets.slice(0, remaining).map((a) => ({ id: uid(), uri: a.uri, rotate: 0 }));
-                  setPages((p) => [...p, ...added]);
-                } else if (pagesRef.current.length === 0) {
-                  navigation.goBack();
-                }
-              } catch {
-                if (pagesRef.current.length === 0) navigation.goBack();
-              }
-            },
-          },
+          { text: "Cancel", style: "cancel" },
+          { text: "Pick Images", onPress: pickImages },
         ]
       );
       return;
@@ -135,20 +164,21 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
       if (res.status === ScanDocumentResponseStatus.Success && res.scannedImages?.length) {
         const added: Page[] = res.scannedImages.map((uri) => ({ id: uid(), uri, rotate: 0 }));
         setPages((p) => [...p, ...added]);
-      } else if (pagesRef.current.length === 0) {
-        navigation.goBack(); // cancelled before scanning anything
       }
     } catch (e) {
       Alert.alert(
         "The scanner couldn't start",
-        "It needs Google Play services on this phone. You can still add photos or PDFs with Add files.\n\n" +
-          (e instanceof Error ? e.message : "")
+        "It needs Google Play services on this phone. You can pick images from your gallery.\n\n" +
+          (e instanceof Error ? e.message : ""),
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Pick from Gallery", onPress: pickImages },
+        ]
       );
-      if (pagesRef.current.length === 0) navigation.goBack();
     } finally {
       setScanning(false);
     }
-  }, [navigation, runExternal]);
+  }, [pickImages, runExternal]);
 
   // Open the camera straight away: Scan is one tap from a folder.
   useEffect(() => {
@@ -156,6 +186,64 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
     started.current = true;
     scan();
   }, [scan]);
+
+  // Automatically suggest file name reading OCR as soon as pages are added
+  useEffect(() => {
+    if (!settings.ocrEnabled || !ocrSupported || pages.length === 0) return;
+    let active = true;
+
+    async function runAutoOcr() {
+      try {
+        const texts: string[] = [];
+        for (const p of pages.slice(0, 5)) {
+          if (ocrCache.current[p.id] === undefined) {
+            try {
+              ocrCache.current[p.id] = await readPageText(p.uri);
+            } catch {
+              ocrCache.current[p.id] = "";
+            }
+          }
+          texts.push(ocrCache.current[p.id]);
+        }
+        if (!active) return;
+
+        const combined = texts.filter(Boolean).join("\n");
+        ocrText.current = combined;
+        if (!combined.trim()) return;
+
+        const found = detectDetails(texts);
+        const bill = parseBill(texts);
+        if (bill.isBill) {
+          setBillParsed(bill);
+        }
+        if (found) {
+          setDet(found);
+        }
+
+        const s = suggestName({
+          text: combined,
+          det: found,
+          bill: bill.isBill ? bill : null,
+          person: personFor(folders, dest),
+        });
+
+        if (s && active) {
+          const cleaned = cleanName(s);
+          setSuggested(cleaned);
+          if (!nameEdited.current) {
+            setName(cleaned);
+          }
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
+    runAutoOcr();
+    return () => {
+      active = false;
+    };
+  }, [pages, settings.ocrEnabled, folders, dest]);
 
   // Don't silently throw away scanned pages.
   useEffect(
@@ -201,8 +289,20 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
       if (format === "pdf") {
         const built: PdfPage[] = [];
         for (const p of pages) {
-          const b64 = await FileSystem.readAsStringAsync(p.uri, { encoding: FileSystem.EncodingType.Base64 });
-          built.push({ jpeg: base64ToBytes(b64), rotate: p.rotate });
+          let uri = p.uri;
+          try {
+            // Normalize image to high-quality JPEG and apply user rotation so it embeds cleanly with zero cuts
+            const r = await manipulateAsync(
+              p.uri,
+              p.rotate ? [{ rotate: p.rotate }] : [],
+              { compress: 0.95, format: SaveFormat.JPEG }
+            );
+            uri = r.uri;
+          } catch {
+            // fallback to original uri if manipulateAsync fails
+          }
+          const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+          built.push({ jpeg: base64ToBytes(b64), rotate: 0 });
         }
         const out = SCAN_OUT + uid() + ".pdf";
         await FileSystem.writeAsStringAsync(out, bytesToBase64(buildPdf(built)), { encoding: FileSystem.EncodingType.Base64 });
@@ -216,6 +316,24 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
             uri = r.uri;
           }
           incoming.push({ uri, name: pages.length > 1 ? `${base} ${i + 1}.jpg` : `${base}.jpg`, mime: "image/jpeg", meta: i === 0 ? meta : undefined });
+        }
+      }
+
+      if (compressPreset !== "off") {
+        const targetMap: Record<string, number> = {
+          "50kb": 50 * 1024,
+          "100kb": 100 * 1024,
+          "200kb": 200 * 1024,
+          "500kb": 500 * 1024,
+        };
+        const maxB = targetMap[compressPreset];
+        if (maxB) {
+          for (let i = 0; i < incoming.length; i++) {
+            const item = incoming[i];
+            const mime = item.mime ?? (item.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+            const comp = await compressDocument(item.uri, mime, maxB);
+            incoming[i] = { ...item, uri: comp.uri };
+          }
         }
       }
 
@@ -355,9 +473,16 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
         />
       ) : pages.length === 0 ? (
         <EmptyState
-          title={scanning ? "Opening the scanner…" : "No pages yet"}
-          body="Point the camera at a document, or import photos from your gallery. DocVault straightens and crops each page for you."
-          action={!scanning ? <Button label="Scan pages" onPress={scan} /> : undefined}
+          title={scanning ? "Opening the scanner…" : "Scan or select a document"}
+          body="Point the camera at a document, or select images from your gallery to convert to PDF. DocVault straightens and sizes each page for you."
+          action={
+            !scanning ? (
+              <View style={{ flexDirection: "row", gap: 10, width: "100%", maxWidth: 360, marginTop: 12 }}>
+                <Button label="Camera" onPress={scan} style={{ flex: 1 }} />
+                <Button label="Gallery" kind="secondary" onPress={pickImages} style={{ flex: 1 }} />
+              </View>
+            ) : undefined
+          }
         />
       ) : (
         <>
@@ -369,6 +494,7 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
                   <Text style={styles.badgeText}>{i + 1}</Text>
                 </View>
                 <View style={styles.tools}>
+                  <Tool icon="crop" label="Crop page" onPress={() => setCropTarget({ id: p.id, uri: p.uri })} />
                   <Tool icon="rotate-cw" label="Rotate page" onPress={() => rotate(i)} />
                   <Tool icon="chevron-left" label="Move earlier" onPress={() => move(i, -1)} disabled={i === 0} />
                   <Tool icon="chevron-right" label="Move later" onPress={() => move(i, 1)} disabled={i === pages.length - 1} />
@@ -379,7 +505,26 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
           </ScrollView>
 
           <View style={[styles.panel, { paddingBottom: insets.bottom + 14 }]}>
-            <Row label="Name" value={name} icon="edit-2" onPress={() => setRenaming(true)} />
+            <Row
+              label="Name"
+              value={name}
+              subvalue={suggested && suggested === name ? "Suggested by OCR" : undefined}
+              icon="edit-2"
+              onPress={() => setRenaming(true)}
+            />
+            {suggested && suggested !== name ? (
+              <Pressable
+                onPress={() => {
+                  setName(suggested);
+                  nameEdited.current = false;
+                }}
+                style={styles.suggestChip}
+                accessibilityRole="button"
+              >
+                <Feather name="zap" size={14} color={colors.primary} />
+                <Text style={styles.suggestText} numberOfLines={1}>Use suggested: {suggested}</Text>
+              </Pressable>
+            ) : null}
             <Row label="Folder" value={dest ? folderPath(folders, dest) : "Choose a folder"} icon="folder" onPress={() => setPicking(true)} warn={!dest} />
             <View style={styles.seg}>
               {(["pdf", "images"] as Format[]).map((f) => (
@@ -388,9 +533,38 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
                 </Pressable>
               ))}
             </View>
+
+            <View style={styles.compressRow}>
+              <Text style={styles.compressRowLabel}>Size limit for uploads:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                {[
+                  { id: "off", label: "Original" },
+                  { id: "200kb", label: "< 200 KB" },
+                  { id: "500kb", label: "< 500 KB" },
+                  { id: "100kb", label: "< 100 KB" },
+                  { id: "50kb", label: "< 50 KB" },
+                ].map((p) => {
+                  const on = compressPreset === p.id;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => setCompressPreset(p.id)}
+                      style={[styles.compressPill, on && styles.compressPillOn]}
+                      accessibilityRole="button"
+                    >
+                      <Text style={[styles.compressPillText, on && { color: colors.onPrimary }]}>
+                        {p.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
             <View style={{ flexDirection: "row", gap: 10 }}>
-              <Button label="Add pages" kind="secondary" disabled={saving} onPress={scan} style={{ flex: 1 }} />
-              <Button label={dest ? (reading ? "Reading text…" : label) : "Choose folder"} loading={saving || reading} onPress={onSavePress} style={{ flex: 1.4 }} />
+              <Button label="Camera" kind="secondary" disabled={saving} onPress={scan} style={{ flex: 1 }} />
+              <Button label="Gallery" kind="secondary" disabled={saving} onPress={pickImages} style={{ flex: 1 }} />
+              <Button label={dest ? (reading ? "Reading text…" : label) : "Choose folder"} loading={saving || reading} onPress={onSavePress} style={{ flex: 1.5 }} />
             </View>
           </View>
         </>
@@ -428,6 +602,12 @@ export default function ScanScreen({ navigation, route }: NativeStackScreenProps
           setDest(id);
           setPicking(false);
         }}
+      />
+      <ImageCropperModal
+        visible={cropTarget !== null}
+        imageUri={cropTarget?.uri ?? null}
+        onCancel={handleCropCancel}
+        onDone={handleCropDone}
       />
     </View>
   );
@@ -605,16 +785,35 @@ function Tool(props: { icon: React.ComponentProps<typeof Feather>["name"]; label
       hitSlop={4}
       style={[styles.tool, props.disabled && { opacity: 0.3 }]}
     >
-      <Feather name={props.icon} size={18} color={props.danger ? colors.danger : colors.ink} />
+      <Feather name={props.icon} size={16} color={props.danger ? colors.danger : colors.ink} />
     </Pressable>
   );
 }
 
-function Row(props: { label: string; value: string; icon: React.ComponentProps<typeof Feather>["name"]; onPress: () => void; warn?: boolean }) {
+function Row(props: {
+  label: string;
+  value: string;
+  subvalue?: string;
+  icon: React.ComponentProps<typeof Feather>["name"];
+  onPress: () => void;
+  warn?: boolean;
+}) {
   return (
     <Pressable onPress={props.onPress} style={styles.row} accessibilityRole="button">
       <Text style={styles.rowLabel}>{props.label}</Text>
-      <Text style={[styles.rowValue, props.warn && { color: colors.danger }]} numberOfLines={1}>{props.value}</Text>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[styles.rowValue, props.warn && { color: colors.danger }]} numberOfLines={1}>
+          {props.value}
+        </Text>
+        {props.subvalue ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+            <Feather name="zap" size={12} color={colors.primary} />
+            <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: colors.primary }} numberOfLines={1}>
+              {props.subvalue}
+            </Text>
+          </View>
+        ) : null}
+      </View>
       <Feather name={props.icon} size={16} color={colors.muted} />
     </Pressable>
   );
@@ -689,7 +888,7 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.onPrimary },
   tools: { flexDirection: "row", justifyContent: "space-between" },
-  tool: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" },
+  tool: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" },
   panel: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: 24,
@@ -706,4 +905,29 @@ const styles = StyleSheet.create({
   segItem: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 10 },
   segOn: { backgroundColor: colors.primary },
   segText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.ink },
+  compressRow: {
+    gap: 6,
+  },
+  compressRowLabel: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.muted,
+  },
+  compressPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  compressPillOn: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  compressPillText: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: colors.ink,
+  },
 });
