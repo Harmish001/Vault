@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import * as Clipboard from "expo-clipboard";
@@ -6,6 +6,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { colors, fonts, kindColors, radius, toneColors } from "../theme";
 import { Folder, VaultFile } from "../types";
 import { dueInfo, expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../utils";
+import { resolveDecryptedThumb } from "../security/fileStorage";
+import { getCachedKey } from "../security/keystore";
 
 export function FavStar({ on, onPress, label, size = 20 }: { on: boolean; onPress: () => void; label: string; size?: number }) {
   return (
@@ -25,8 +27,33 @@ export function FavStar({ on, onPress, label, size = 20 }: { on: boolean; onPres
 export function FileThumb({ name, mime, uri, size = 44 }: { name: string; mime: string; uri?: string; size?: number }) {
   const kind = kindOf(mime, name);
   const s = kindColors[kind];
-  if (kind === "image" && uri) {
-    return <Image source={{ uri }} style={{ width: size, height: size, borderRadius: 10, backgroundColor: s.bg }} />;
+  const [decryptedThumb, setDecryptedThumb] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (kind !== "image" || !uri) {
+      setDecryptedThumb(null);
+      return;
+    }
+    if (!uri.includes("vault/files/")) {
+      setDecryptedThumb(uri);
+      return;
+    }
+    resolveDecryptedThumb(uri, getCachedKey()).then((res) => {
+      if (!cancelled && res) setDecryptedThumb(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, uri]);
+
+  if (kind === "image" && (decryptedThumb || (!uri?.includes("vault/files/") && uri))) {
+    return (
+      <Image
+        source={{ uri: decryptedThumb || uri }}
+        style={{ width: size, height: size, borderRadius: 10, backgroundColor: s.bg }}
+      />
+    );
   }
   const label = (extOf(name).slice(1) || "file").toUpperCase().slice(0, 4);
   return (
