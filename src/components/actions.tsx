@@ -68,6 +68,11 @@ export function useFileActions() {
                   onPress: () => vault.shareFile(target).catch(() => Alert.alert("Couldn't share this file")),
                 },
                 {
+                  label: "Send to PC (Scan QR)",
+                  icon: "monitor" as const,
+                  onPress: () => navigation.navigate("SmartShare", { preselectedFileIds: [target.id] }),
+                },
+                {
                   label: isFavorite(vault.favorites, "file", target.id) ? "Remove from favorites" : "Add to favorites",
                   icon: "star",
                   onPress: () => vault.toggleFavorite("file", target.id),

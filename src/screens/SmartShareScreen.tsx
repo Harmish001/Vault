@@ -1,16 +1,16 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
+import * as FileSystem from "expo-file-system/legacy";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
@@ -18,7 +18,14 @@ import { VaultFile, Note } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { ScreenHeader } from "../components/ui";
 import { formatBytes } from "../utils";
-import { ShareableItem, createShareSession } from "../sharing/sharing";
+import {
+  ShareableItem,
+  createShareSession,
+  warmShareKeys,
+  PayloadTooLargeError,
+} from "../sharing/sharing";
+import { compressDocument } from "../compress/compressor";
+import { base64ToBytes } from "../scan/base64";
 
 const TTL_OPTIONS = [
   { label: "5 min", sec: 300 },
@@ -26,17 +33,30 @@ const TTL_OPTIONS = [
   { label: "1 hour", sec: 3600 },
 ];
 
+const RELAY_MAX_RAW_BYTES = 3.5 * 1024 * 1024; // 3.5 MB uncompressed raw limit before base64 blowup
+
 export default function SmartShareScreen({
   navigation,
+  route,
 }: NativeStackScreenProps<RootStackParamList, "SmartShare">) {
-  const { files, folders, notes } = useVault();
+  const vault = useVault();
+  const { files, folders, notes, getDecryptedUri } = vault;
   const insets = useSafeAreaInsets();
 
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const preselected = route.params?.preselectedFileIds;
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(
+    () => new Set(preselected ?? [])
+  );
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
   const [ttlSec, setTtlSec] = useState(300);
   const [tab, setTab] = useState<"files" | "notes">("files");
   const [loading, setLoading] = useState(false);
+  const [progressMsg, setProgressMsg] = useState("");
+
+  // Warm up PBKDF2 keys in the background as soon as screen mounts
+  useEffect(() => {
+    warmShareKeys();
+  }, []);
 
   const totalSelected = selectedFiles.size + selectedNotes.size;
 
@@ -61,23 +81,109 @@ export default function SmartShareScreen({
   // Public notes only — never share secret (password) notes
   const publicNotes = useMemo(() => notes.filter((n) => !n.isSecret), [notes]);
 
-  async function handleShare() {
-    if (totalSelected === 0) {
-      Alert.alert("Nothing selected", "Pick at least one file or note to share.");
+  // Calculate selected total bytes
+  const selectedTotalBytes = useMemo(() => {
+    let bytes = 0;
+    for (const f of files) {
+      if (selectedFiles.has(f.id)) bytes += f.size || 0;
+    }
+    for (const n of publicNotes) {
+      if (selectedNotes.has(n.id)) bytes += (n.content?.length || 0) + (n.title?.length || 0);
+    }
+    return bytes;
+  }, [files, selectedFiles, publicNotes, selectedNotes]);
+
+  const isOversized = selectedTotalBytes > RELAY_MAX_RAW_BYTES;
+
+  const toggleSelectAll = useCallback(() => {
+    if (tab === "files") {
+      if (selectedFiles.size === files.length) {
+        setSelectedFiles(new Set());
+      } else {
+        setSelectedFiles(new Set(files.map((f) => f.id)));
+      }
+    } else {
+      if (selectedNotes.size === publicNotes.length) {
+        setSelectedNotes(new Set());
+      } else {
+        setSelectedNotes(new Set(publicNotes.map((n) => n.id)));
+      }
+    }
+  }, [tab, selectedFiles.size, files, selectedNotes.size, publicNotes]);
+
+  async function handleDirectShare() {
+    const chosenFiles = files.filter((f) => selectedFiles.has(f.id));
+    if (chosenFiles.length === 0) {
+      Alert.alert("No files selected", "Please select at least one file to share.");
       return;
     }
-    setLoading(true);
     try {
-      const items: ShareableItem[] = [
-        ...files
-          .filter((f) => selectedFiles.has(f.id))
-          .map((file): ShareableItem => ({ kind: "file", file })),
-        ...publicNotes
-          .filter((n) => selectedNotes.has(n.id))
-          .map((note): ShareableItem => ({ kind: "note", note })),
-      ];
+      if (chosenFiles.length === 1) {
+        await vault.shareFile(chosenFiles[0]);
+      } else {
+        await vault.shareFilesZip(chosenFiles);
+      }
+    } catch (e) {
+      Alert.alert("Direct Share failed", e instanceof Error ? e.message : "Could not open share sheet.");
+    }
+  }
 
-      const session = await createShareSession(items, ttlSec);
+  async function handleSmartCompressAndShare() {
+    if (totalSelected === 0) return;
+    setLoading(true);
+    setProgressMsg("Preparing documents for Smart Compress...");
+    try {
+      const chosenFiles = files.filter((f) => selectedFiles.has(f.id));
+      const chosenNotes = publicNotes.filter((n) => selectedNotes.has(n.id));
+      const items: ShareableItem[] = [];
+
+      // Budget per file targeting ~2 MB total so it fits comfortably within the relay limit
+      const perFileBudget = Math.max(
+        60 * 1024,
+        Math.floor((2.0 * 1024 * 1024) / Math.max(1, chosenFiles.length))
+      );
+
+      for (let i = 0; i < chosenFiles.length; i++) {
+        const f = chosenFiles[i];
+        const isCompressible =
+          f.mime === "application/pdf" ||
+          f.name.toLowerCase().endsWith(".pdf") ||
+          f.mime.startsWith("image/") ||
+          /\.(jpe?g|png|webp|heic)$/i.test(f.name);
+
+        if (isCompressible && f.size > perFileBudget) {
+          setProgressMsg(`Optimizing ${i + 1}/${chosenFiles.length}: ${f.name}...`);
+          try {
+            const decUri = await getDecryptedUri(f);
+            const comp = await compressDocument(decUri, f.mime, perFileBudget);
+            const compB64 = await FileSystem.readAsStringAsync(comp.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            items.push({
+              kind: "file",
+              file: f,
+              customBytes: base64ToBytes(compB64),
+              customName: f.name,
+              customMime: f.mime,
+            });
+            await FileSystem.deleteAsync(comp.uri, { idempotent: true }).catch(() => undefined);
+            continue;
+          } catch {
+            // Keep original if compression failed
+          }
+        }
+        items.push({ kind: "file", file: f });
+      }
+
+      for (const note of chosenNotes) {
+        items.push({ kind: "note", note });
+      }
+
+      setProgressMsg("Securing and uploading to relay...");
+      const session = await createShareSession(items, ttlSec, (_stage, _pct, msg) => {
+        setProgressMsg(msg);
+      });
+
       navigation.replace("ShareQR", {
         url: session.url,
         expiresAt: session.expiresAt,
@@ -93,6 +199,73 @@ export default function SmartShareScreen({
       );
     } finally {
       setLoading(false);
+      setProgressMsg("");
+    }
+  }
+
+  async function handleShare() {
+    if (totalSelected === 0) {
+      Alert.alert("Nothing selected", "Pick at least one file or note to share.");
+      return;
+    }
+
+    if (isOversized) {
+      Alert.alert(
+        "Files Exceed Web QR Limit",
+        `Selected files total ${formatBytes(selectedTotalBytes)}, exceeding the 4 MB web relay limit.\n\nChoose an option:`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "📲 Direct Share (Quick Share)", onPress: handleDirectShare },
+          { text: "⚡ Smart Compress & Share QR", onPress: handleSmartCompressAndShare },
+        ]
+      );
+      return;
+    }
+
+    setLoading(true);
+    setProgressMsg("Securing files...");
+    try {
+      const items: ShareableItem[] = [
+        ...files
+          .filter((f) => selectedFiles.has(f.id))
+          .map((file): ShareableItem => ({ kind: "file", file })),
+        ...publicNotes
+          .filter((n) => selectedNotes.has(n.id))
+          .map((note): ShareableItem => ({ kind: "note", note })),
+      ];
+
+      const session = await createShareSession(items, ttlSec, (_stage, _pct, msg) => {
+        setProgressMsg(msg);
+      });
+
+      navigation.replace("ShareQR", {
+        url: session.url,
+        expiresAt: session.expiresAt,
+        token: session.token,
+        itemCount: items.length,
+        code: session.code,
+        words: session.words,
+      });
+    } catch (e) {
+      if (e instanceof PayloadTooLargeError) {
+        Alert.alert(
+          "Files Too Large for Web Relay",
+          `${e.message}\n\nWould you like to Smart Compress them to ~2 MB for instant QR sharing, or send original files via Quick Share?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "📲 Direct Share", onPress: handleDirectShare },
+            { text: "⚡ Smart Compress", onPress: handleSmartCompressAndShare },
+          ]
+        );
+      } else {
+        Alert.alert(
+          "Couldn't create share link",
+          e instanceof Error ? e.message : "Please check your connection and try again."
+        );
+      }
+    } finally {
+      setLoading(false);
+      setProgressMsg("");
     }
   }
 
@@ -147,12 +320,28 @@ export default function SmartShareScreen({
     );
   }
 
+  const isAllCurrentTabSelected =
+    tab === "files"
+      ? files.length > 0 && selectedFiles.size === files.length
+      : publicNotes.length > 0 && selectedNotes.size === publicNotes.length;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScreenHeader
-        title="Smart Share"
-        subtitle="Share via QR code — works anywhere"
+        title="Send to PC / Device"
+        subtitle="End-to-end encrypted · zero setup"
         onBack={() => navigation.goBack()}
+        right={
+          <Pressable
+            onPress={toggleSelectAll}
+            hitSlop={8}
+            style={styles.selectAllBtn}
+          >
+            <Text style={styles.selectAllText}>
+              {isAllCurrentTabSelected ? "Deselect All" : "Select All"}
+            </Text>
+          </Pressable>
+        }
       />
 
       {/* Tab bar */}
@@ -210,8 +399,49 @@ export default function SmartShareScreen({
         />
       )}
 
-      {/* Footer: TTL + Share button */}
+      {/* Footer: Oversize warning + TTL + Share buttons */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+        {/* If files exceed 3.5MB, display Smart-Compress / Direct-Share assistant */}
+        {isOversized && (
+          <View style={styles.oversizeCard}>
+            <View style={styles.oversizeHeader}>
+              <Feather name="zap" size={16} color="#D97706" />
+              <Text style={styles.oversizeTitle}>
+                Large Transfer: {formatBytes(selectedTotalBytes)} (Max 4 MB for Web QR)
+              </Text>
+            </View>
+            <Text style={styles.oversizeSub}>
+              Web QR relay supports up to 4 MB. Smart Compress to ~2 MB for instant QR, or send original full-size files directly via Quick Share / Wi-Fi Direct.
+            </Text>
+            <View style={styles.oversizeBtns}>
+              <Pressable
+                onPress={handleSmartCompressAndShare}
+                disabled={loading}
+                style={({ pressed }) => [
+                  styles.compressBtn,
+                  pressed && { opacity: 0.8 },
+                  loading && { opacity: 0.5 },
+                ]}
+              >
+                <Feather name="minimize-2" size={14} color="#B45309" />
+                <Text style={styles.compressBtnText}>⚡ Smart Compress & QR</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleDirectShare}
+                disabled={loading}
+                style={({ pressed }) => [
+                  styles.directBtn,
+                  pressed && { opacity: 0.8 },
+                  loading && { opacity: 0.5 },
+                ]}
+              >
+                <Feather name="share" size={14} color={colors.primary} />
+                <Text style={styles.directBtnText}>📲 Direct Quick Share</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* TTL picker */}
         <View style={styles.ttlRow}>
           <Text style={styles.ttlLabel}>Link expires in</Text>
@@ -232,21 +462,28 @@ export default function SmartShareScreen({
           </View>
         </View>
 
-        {/* Security note */}
-        <View style={styles.secBadge}>
-          <Feather name="lock" size={13} color={colors.accent} />
-          <Text style={styles.secText}>
-            End-to-end encrypted. Decryption key never leaves your device.
-          </Text>
-        </View>
+        {/* Security badge / Live progress status */}
+        {loading ? (
+          <View style={styles.progressBadge}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.progressText}>{progressMsg || "Securing files..."}</Text>
+          </View>
+        ) : (
+          <View style={styles.secBadge}>
+            <Feather name="shield" size={13} color={colors.accent} />
+            <Text style={styles.secText}>
+              End-to-end encrypted with AES-256-GCM. Decryption key stays on this device.
+            </Text>
+          </View>
+        )}
 
         {/* Share button */}
         <Pressable
           onPress={handleShare}
-          disabled={loading}
+          disabled={loading || totalSelected === 0}
           style={({ pressed }) => [
             styles.shareBtn,
-            loading && { opacity: 0.6 },
+            (loading || totalSelected === 0) && { opacity: 0.5 },
             pressed && { opacity: 0.85 },
           ]}
         >
@@ -254,11 +491,11 @@ export default function SmartShareScreen({
             <ActivityIndicator color={colors.onPrimary} />
           ) : (
             <>
-              <Feather name="share-2" size={18} color={colors.onPrimary} />
+              <Feather name="maximize" size={18} color={colors.onPrimary} />
               <Text style={styles.shareBtnText}>
                 {totalSelected === 0
                   ? "Select items to share"
-                  : `Generate QR · ${totalSelected} item${totalSelected !== 1 ? "s" : ""}`}
+                  : `Generate QR · ${totalSelected} item${totalSelected !== 1 ? "s" : ""} (${formatBytes(selectedTotalBytes)})`}
               </Text>
             </>
           )}
@@ -269,6 +506,15 @@ export default function SmartShareScreen({
 }
 
 const styles = StyleSheet.create({
+  selectAllBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  selectAllText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.primary,
+  },
   tabs: {
     flexDirection: "row",
     paddingHorizontal: 16,
@@ -358,6 +604,71 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  oversizeCard: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    padding: 12,
+    gap: 8,
+  },
+  oversizeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  oversizeTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: "#92400E",
+  },
+  oversizeSub: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: "#78350F",
+    lineHeight: 16,
+  },
+  oversizeBtns: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+  },
+  compressBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#FEF3C7",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+  },
+  compressBtnText: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: "#92400E",
+  },
+  directBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: colors.surface,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  directBtnText: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: colors.primary,
+  },
   ttlRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -392,6 +703,21 @@ const styles = StyleSheet.create({
   },
   ttlChipTextOn: {
     color: colors.primary,
+  },
+  progressBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  progressText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.primary,
+    flex: 1,
   },
   secBadge: {
     flexDirection: "row",

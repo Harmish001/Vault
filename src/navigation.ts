@@ -27,7 +27,7 @@ export type RootStackParamList = {
   MyCard: undefined;
   Notes: undefined;
   NoteEdit: { id?: string } | undefined;
-  SmartShare: undefined;
+  SmartShare: { preselectedFileIds?: string[] } | undefined;
   ShareQR: {
     url: string;
     expiresAt: number;
