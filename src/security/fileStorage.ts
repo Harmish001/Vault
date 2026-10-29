@@ -12,10 +12,13 @@ let expoLegacyFs: any = null;
 let PickedFileClass: any = null;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // In Node.js test environment, dynamically load fs without triggering Metro bundler
   if (typeof process !== "undefined" && process.versions && process.versions.node) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    nodeFs = require("fs");
+    const dynamicRequire = typeof eval !== "undefined" ? eval("require") : null;
+    if (dynamicRequire) {
+      const mod = "fs";
+      nodeFs = dynamicRequire(mod);
+    }
   }
 } catch {
   // Not Node
