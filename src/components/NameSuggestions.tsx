@@ -22,7 +22,7 @@ const baseName = (n: string) => n.slice(0, n.length - extOf(n).length);
  * Render `element` once in the screen.
  */
 export function useNameSuggestions() {
-  const { folders, files, fileUri, renameFile } = useVault();
+  const { folders, files, fileUri, getDecryptedUri, renameFile } = useVault();
   const { settings } = useSettings();
   const [items, setItems] = useState<Item[] | null>(null);
   const [editing, setEditing] = useState<Item | null>(null);
@@ -42,9 +42,14 @@ export function useNameSuggestions() {
     if (!settings.ocrEnabled || !ocrSupported || !images.length) return finish();
     const out: Item[] = [];
     for (const f of images) {
-      const s = suggestNameFromText(await readPageText(fileUri(f)), personFor(folders, f.folderId));
-      const name = s ? cleanFileName(s) : "";
-      if (name && name.toLowerCase() !== baseName(f.name).toLowerCase()) out.push({ file: f, name, on: true });
+      try {
+        const decUri = await getDecryptedUri(f);
+        const s = suggestNameFromText(await readPageText(decUri), personFor(folders, f.folderId));
+        const name = s ? cleanFileName(s) : "";
+        if (name && name.toLowerCase() !== baseName(f.name).toLowerCase()) out.push({ file: f, name, on: true });
+      } catch {
+        // skip if unreadable
+      }
     }
     if (out.length) setItems(out);
     else finish();

@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Alert, BackHandler, Pressable, StyleSheet, Text, ToastAndroid, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
 import { VaultFile } from "../types";
@@ -16,6 +19,7 @@ import { ActionMenu, IconButton, PromptModal, ScreenHeader } from "./ui";
  */
 export function useFileSelection(visible: VaultFile[], currentFolderId?: string) {
   const vault = useVault();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { runExternal } = useLock();
   const insets = useSafeAreaInsets();
   const [ids, setIds] = useState<Set<string>>(new Set());
@@ -169,6 +173,15 @@ export function useFileSelection(visible: VaultFile[], currentFolderId?: string)
                 const n = await runExternal(() => vault.exportFiles(selected));
                 return n ? `Saved ${plural(n, "file")}` : null;
               }),
+          },
+          {
+            label: "Send to PC (Scan QR)",
+            icon: "monitor" as const,
+            onPress: () => {
+              const fileIds = selected.map((s) => s.id);
+              clear();
+              navigation.navigate("SmartShare", { preselectedFileIds: fileIds });
+            },
           },
           ...(selected.length === 1
             ? [{ label: "Share", icon: "share-2" as const, onPress: () => run("share this file", () => vault.shareFile(selected[0])) }]

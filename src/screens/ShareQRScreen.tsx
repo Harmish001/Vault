@@ -6,8 +6,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  ToastAndroid,
   View,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Feather from "@expo/vector-icons/Feather";
 import QRCode from "react-native-qrcode-svg";
@@ -122,6 +124,20 @@ export default function ShareQRScreen({
                 Expires in {minutes}:{seconds}
               </Text>
             </View>
+          )}
+
+          {/* Quick copy link button */}
+          {!expired && !blurred && (
+            <Pressable
+              onPress={async () => {
+                await Clipboard.setStringAsync(url);
+                ToastAndroid.show("Secure share link copied to clipboard", ToastAndroid.SHORT);
+              }}
+              style={({ pressed }) => [styles.copyBtn, pressed && { opacity: 0.75 }]}
+            >
+              <Feather name="copy" size={14} color={colors.primary} />
+              <Text style={styles.copyBtnText}>Copy Link</Text>
+            </Pressable>
           )}
 
           {/* Typed alternative for PCs without a camera */}
@@ -254,6 +270,20 @@ const styles = StyleSheet.create({
   timerText: {
     fontFamily: fonts.semibold,
     fontSize: 15,
+  },
+  copyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.sm,
+  },
+  copyBtnText: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.primary,
   },
   codeBox: {
     width: "100%",

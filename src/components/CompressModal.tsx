@@ -85,7 +85,8 @@ export function CompressModal({ visible, target, onClose, onSaved }: Props) {
     if (!target) return;
     try {
       setCompressing(true);
-      const res = await compressDocument(target.uri, target.mime, targetLimitBytes);
+      const srcUri = target.vaultFile ? await vault.getDecryptedUri(target.vaultFile) : target.uri;
+      const res = await compressDocument(srcUri, target.mime, targetLimitBytes);
       setResult(res);
     } catch (err: any) {
       Alert.alert(
@@ -152,9 +153,7 @@ export function CompressModal({ visible, target, onClose, onSaved }: Props) {
           onPress: async () => {
             try {
               setSavingAction(true);
-              const destPath = vault.fileUri(target.vaultFile!);
-              await FileSystem.copyAsync({ from: result.uri, to: destPath });
-              await vault.updateFile(target.vaultFile!.id, { size: result.size });
+              await vault.replaceFileContent(target.vaultFile!.id, result.uri, result.size);
               ToastAndroid.show("Original replaced with compressed file", ToastAndroid.SHORT);
               onSaved?.();
               onClose();

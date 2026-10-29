@@ -9,15 +9,22 @@
  *   <12-byte nonce> | <ciphertext+16-byte GCM tag>
  */
 import { gcm } from "@noble/ciphers/aes.js";
-import * as Crypto from "expo-crypto";
 import { bytesToBase64, base64ToBytes } from "../scan/base64";
 
+function getCryptoRandomBytes(count: number): Uint8Array {
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    return globalThis.crypto.getRandomValues(new Uint8Array(count));
+  }
+  const Crypto = require("expo-crypto");
+  return Crypto.getRandomBytes(count);
+}
+
 export function generateShareKey(): Uint8Array {
-  return Crypto.getRandomBytes(32);
+  return getCryptoRandomBytes(32);
 }
 
 export function generateNonce(): Uint8Array {
-  return Crypto.getRandomBytes(12);
+  return getCryptoRandomBytes(12);
 }
 
 /** Encode bytes as URL-safe base64 (no padding). */

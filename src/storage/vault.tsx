@@ -7,6 +7,12 @@ import { isPasswordProtected, unzip, unzipWithPassword, zip, zipWithPassword } f
 import { Favorite, Folder, IncomingFile, Note, Profile, Reminder, VaultFile, VaultIndex } from "../types";
 import { loadKey, randomNonce, replaceKey } from "../security/keystore";
 import { decryptString, encryptString } from "../security/crypto";
+import {
+  ensureDecryptedCopy,
+  migratePlainFilesToEncrypted,
+  readDecryptedBytes,
+  storeEncryptedFile,
+} from "../security/fileStorage";
 import { pruneFavorites, toggleFavorite as toggleFav } from "../favorites";
 
 export type FilePatch = Partial<Pick<VaultFile, "notes" | "tags" | "expiresOn" | "fields" | "size">>;
@@ -33,6 +39,8 @@ const SHARE_DIR = CACHE + "share/";
 const RESTORE_ZIP = CACHE + "restore.zip";
 const RESTORE_DIR = CACHE + "restore/";
 const OLD_ROOT = DOC + "vault_old/";
+const EPHEMERAL_DIR = CACHE + "ephemeral/";
+const EPHEMERAL_THUMBS_DIR = CACHE + "ephemeral_thumbs/";
 
 const EMPTY: VaultIndex = { version: 1, folders: [], files: [], reminders: [], notes: [] };
 
@@ -156,6 +164,16 @@ async function loadVault(): Promise<Loaded> {
 
   if (!encExists || importedPlain) await persistIndex(key, current);
   if (plain) await removePlainIndexes();
+
+  // Auto-migrate any unencrypted legacy files in vault/files/ to AES-256-GCM
+  if (key) {
+    try {
+      await migratePlainFilesToEncrypted(key, FILES_DIR, randomNonce);
+    } catch (e) {
+      console.warn("[vault] file encryption migration failed:", e);
+    }
+  }
+
   return { key, index: current, error: null };
 }
 
@@ -193,6 +211,8 @@ async function clearTempFiles() {
     await FileSystem.deleteAsync(SCANNER_TMP, { idempotent: true });
     await FileSystem.deleteAsync(RESTORE_ZIP, { idempotent: true });
     await FileSystem.deleteAsync(RESTORE_DIR, { idempotent: true });
+    await FileSystem.deleteAsync(EPHEMERAL_DIR, { idempotent: true });
+    await FileSystem.deleteAsync(EPHEMERAL_THUMBS_DIR, { idempotent: true });
     const names = await FileSystem.readDirectoryAsync(CACHE);
     await Promise.all(
       names
@@ -248,6 +268,10 @@ type Ctx = {
   /** opens in another app and remembers when, for "Last opened" sorting */
   openFile: (f: VaultFile) => Promise<void>;
   fileUri: (f: VaultFile) => string;
+  /** decrypts a stored file into a secure temporary location for external viewers / processors */
+  getDecryptedUri: (f: VaultFile) => Promise<string>;
+  /** replaces an existing file's content on disk with encrypted content */
+  replaceFileContent: (id: string, newFileUri: string, newSize?: number) => Promise<void>;
   shareFile: (f: VaultFile) => Promise<void>;
   /** copies under their real names into a folder the user picks; resolves how many were saved (0 if cancelled) */
   exportFiles: (files: VaultFile[]) => Promise<number>;
@@ -376,16 +400,19 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       const added: VaultFile[] = [];
       const failed: string[] = [];
       const taken = cur.files.filter((f) => f.folderId === folderId).map((f) => f.name);
+      const key = keyRef.current;
+      if (!key) throw new Error("Vault is locked");
+
       for (const item of incoming) {
         try {
           const id = uid();
           const storedAs = id + extOf(item.name);
           const dest = FILES_DIR + storedAs;
-          await FileSystem.copyAsync({ from: normalizeUri(item.uri), to: dest });
-          if (normalizeUri(item.uri).startsWith(CACHE)) {
-            FileSystem.deleteAsync(normalizeUri(item.uri), { idempotent: true }).catch(() => undefined);
+          const norm = normalizeUri(item.uri);
+          const storedSize = await storeEncryptedFile(key, norm, dest, randomNonce());
+          if (norm.startsWith(CACHE)) {
+            FileSystem.deleteAsync(norm, { idempotent: true }).catch(() => undefined);
           }
-          const info = await FileSystem.getInfoAsync(dest);
           const name = uniqueName(taken, item.name);
           taken.push(name);
           added.push({
@@ -393,7 +420,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
             folderId,
             name,
             mime: guessMime(item.name, item.mime),
-            size: info.exists && "size" in info ? info.size : item.size ?? 0,
+            size: storedSize || item.size || 0,
             storedAs,
             addedAt: Date.now(),
             ...(item.meta?.fields?.length ? { fields: item.meta.fields } : {}),
@@ -401,7 +428,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
             ...(item.meta?.expiresOn ? { expiresOn: item.meta.expiresOn } : {}),
             ...(item.meta?.notes ? { notes: item.meta.notes } : {}),
           });
-        } catch {
+        } catch (e) {
+          console.warn("[vault] addFile failed:", e);
           failed.push(item.name);
         }
       }
@@ -559,13 +587,44 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       };
     });
 
+  const getDecryptedUri = useCallback(async (f: VaultFile): Promise<string> => {
+    const key = keyRef.current;
+    if (!key) throw new Error("Vault is locked");
+    await FileSystem.makeDirectoryAsync(EPHEMERAL_DIR, { intermediates: true });
+    const ephemeralPath = EPHEMERAL_DIR + safeName(f.name);
+    return await ensureDecryptedCopy(key, FILES_DIR + f.storedAs, ephemeralPath);
+  }, []);
+
   const openVaultFile: Ctx["openFile"] = async (f) => {
-    if (!(await openFile(FILES_DIR + f.storedAs, f.mime))) return;
-    await mutate(async (cur) => ({
-      next: { ...cur, files: cur.files.map((x) => (x.id === f.id ? { ...x, openedAt: Date.now() } : x)) },
-      result: undefined,
-    })).catch(() => undefined);
+    try {
+      const decUri = await getDecryptedUri(f);
+      if (!(await openFile(decUri, f.mime))) return;
+      await mutate(async (cur) => ({
+        next: { ...cur, files: cur.files.map((x) => (x.id === f.id ? { ...x, openedAt: Date.now() } : x)) },
+        result: undefined,
+      })).catch(() => undefined);
+    } catch (e) {
+      console.warn("[vault] could not open file:", e);
+    }
   };
+
+  const replaceFileContent: Ctx["replaceFileContent"] = async (id, newFileUri, newSize) =>
+    mutate(async (cur) => {
+      const target = cur.files.find((f) => f.id === id);
+      if (!target) return { next: cur, result: undefined };
+      const key = keyRef.current;
+      if (!key) throw new Error("Vault is locked");
+      const dest = FILES_DIR + target.storedAs;
+      const norm = normalizeUri(newFileUri);
+      const actualSize = await storeEncryptedFile(key, norm, dest, randomNonce());
+      return {
+        next: {
+          ...cur,
+          files: cur.files.map((f) => (f.id === id ? { ...f, size: newSize ?? actualSize } : f)),
+        },
+        result: undefined,
+      };
+    });
 
   const toggleFavorite: Ctx["toggleFavorite"] = (kind, id) =>
     mutate(async (cur) => ({
@@ -593,18 +652,22 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     await FileSystem.makeDirectoryAsync(SHARE_DIR, { intermediates: true });
     const tmp = SHARE_DIR + safeName(f.name);
     await FileSystem.deleteAsync(tmp, { idempotent: true });
-    await FileSystem.copyAsync({ from: FILES_DIR + f.storedAs, to: tmp });
+    const decUri = await getDecryptedUri(f);
+    await FileSystem.copyAsync({ from: decUri, to: tmp });
     await Sharing.shareAsync(tmp, { mimeType: f.mime, dialogTitle: f.name });
   };
 
   const exportFiles: Ctx["exportFiles"] = async (list) => {
     const dir = await PickedDirectory.pickDirectoryAsync().catch(() => null);
     if (!dir) return 0; // picker cancelled
+    const key = keyRef.current;
+    if (!key) throw new Error("Vault is locked");
     const taken: string[] = [];
     for (const f of list) {
       const name = uniqueName(taken, safeName(f.name));
       taken.push(name);
-      dir.createFile(name, f.mime).write(await new PickedFile(FILES_DIR + f.storedAs).bytes());
+      const plainBytes = await readDecryptedBytes(key, FILES_DIR + f.storedAs);
+      dir.createFile(name, f.mime).write(plainBytes);
     }
     return list.length;
   };
@@ -620,7 +683,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     for (const f of list) {
       const name = uniqueName(taken, safeName(f.name));
       taken.push(name);
-      await FileSystem.copyAsync({ from: FILES_DIR + f.storedAs, to: dir + name });
+      const decUri = await getDecryptedUri(f);
+      await FileSystem.copyAsync({ from: decUri, to: dir + name });
     }
     try {
       await zip(stripFileScheme(dir).replace(/\/$/, ""), stripFileScheme(out));
@@ -670,19 +734,37 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const exportBackup: Ctx["exportBackup"] = async (password, saveTo) => {
     if (!zipReady()) throw new Error(BACKUPS_UNAVAILABLE);
     await queue.current; // let pending writes finish first
+    const key = keyRef.current;
+    if (!key) throw new Error("Vault is locked");
+
     const out = CACHE + backupFileName();
     await FileSystem.deleteAsync(out, { idempotent: true });
-    const src = stripFileScheme(ROOT).replace(/\/$/, "");
-    const dst = stripFileScheme(out);
+
+    const stagingDir = CACHE + "backup_staging/";
+    const stagingFilesDir = stagingDir + "files/";
+    await FileSystem.deleteAsync(stagingDir, { idempotent: true });
+    await FileSystem.makeDirectoryAsync(stagingFilesDir, { intermediates: true });
+
     // The on-phone index is encrypted with this phone's key, so a backup carries a readable copy.
-    // That copy only exists inside vault/ while the zip is being made, then it is removed again.
-    // Use a password to protect the backup file itself.
-    await FileSystem.writeAsStringAsync(INDEX_PLAIN, JSON.stringify(latest.current));
+    await FileSystem.writeAsStringAsync(stagingDir + "index.json", JSON.stringify(latest.current));
+
+    // Decrypt files into backup staging so they can be restored on any device
+    for (const f of latest.current.files) {
+      try {
+        const decUri = await getDecryptedUri(f);
+        await FileSystem.copyAsync({ from: decUri, to: stagingFilesDir + f.storedAs });
+      } catch (e) {
+        console.warn("[backup] file export error for", f.name, e);
+      }
+    }
+
+    const src = stripFileScheme(stagingDir).replace(/\/$/, "");
+    const dst = stripFileScheme(out);
     try {
       if (password) await zipWithPassword(src, dst, password, "AES-256" as never);
       else await zip(src, dst);
     } finally {
-      await removePlainIndexes();
+      await FileSystem.deleteAsync(stagingDir, { idempotent: true });
     }
     if (saveTo) {
       // Content URIs from Drive, Downloads etc. can't be copied to with the legacy API; write the bytes instead.
@@ -699,15 +781,34 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const performAutoBackup: Ctx["performAutoBackup"] = async () => {
     if (!zipReady()) throw new Error(BACKUPS_UNAVAILABLE);
     await queue.current; // let pending writes finish first
+    const key = keyRef.current;
+    if (!key) throw new Error("Vault is locked");
+
     const out = CACHE + "DocVault-auto-backup.tmp";
     await FileSystem.deleteAsync(out, { idempotent: true });
-    const src = stripFileScheme(ROOT).replace(/\/$/, "");
+
+    const stagingDir = CACHE + "backup_staging/";
+    const stagingFilesDir = stagingDir + "files/";
+    await FileSystem.deleteAsync(stagingDir, { idempotent: true });
+    await FileSystem.makeDirectoryAsync(stagingFilesDir, { intermediates: true });
+
+    await FileSystem.writeAsStringAsync(stagingDir + "index.json", JSON.stringify(latest.current));
+
+    for (const f of latest.current.files) {
+      try {
+        const decUri = await getDecryptedUri(f);
+        await FileSystem.copyAsync({ from: decUri, to: stagingFilesDir + f.storedAs });
+      } catch (e) {
+        console.warn("[auto-backup] file export error for", f.name, e);
+      }
+    }
+
+    const src = stripFileScheme(stagingDir).replace(/\/$/, "");
     const dst = stripFileScheme(out);
-    await FileSystem.writeAsStringAsync(INDEX_PLAIN, JSON.stringify(latest.current));
     try {
       await zip(src, dst);
     } finally {
-      await removePlainIndexes();
+      await FileSystem.deleteAsync(stagingDir, { idempotent: true });
     }
     const res = await saveAutoBackup(out);
     return { path: res.path, size: res.size };
@@ -806,6 +907,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     addTags,
     openFile: openVaultFile,
     fileUri,
+    getDecryptedUri,
+    replaceFileContent,
     shareFile,
     exportFiles,
     shareFilesZip,

@@ -80,15 +80,17 @@ Change the package id **before** your first real release; it can't change later 
 
 ## Encryption
 
-What is encrypted: the vault index (`vault.enc`): folder and file names, tags, notes, saved fields, expiry dates and reminders. Algorithm: AES-256-GCM (`@noble/ciphers`, checked against Node's own implementation in `npm test`). The 256-bit key is random, generated on first run and kept in Android's Keystore-backed secure storage (`expo-secure-store`). It is not derived from a password and never leaves the phone.
+What is encrypted:
+- **The vault index (`vault.enc`):** folder and file names, tags, notes, saved fields, expiry dates and reminders.
+- **The files themselves (`vault/files/`):** all stored documents (PDFs, photos, scans, and attachments) are encrypted at rest with **AES-256-GCM** using the phone's Keystore master key. Files carry a `DVF1` binary signature with a unique 12-byte nonce and 16-byte authentication tag per file.
+- **Ephemeral decrypt-on-open:** documents are decrypted to an ephemeral cache only when opened in an external viewer or shared, and cleared when the app locks or closes.
+- **Algorithm:** AES-256-GCM (`@noble/ciphers`, checked against Node's own implementation in `npm test`). The 256-bit key is random, generated on first run and kept in Android's Keystore-backed secure storage (`expo-secure-store`). It is not derived from a password and never leaves the phone.
 
-What is **not** encrypted yet: the files themselves (PDFs, photos). They sit in the app's private storage behind the app lock. Encrypting them is the planned next step (it needs decrypt-on-open to a temporary copy, so it is a separate release).
+What this protects against: someone reading files or the index out of a phone image, a forensic extraction, a leaked backup of app data, or another app (even on rooted phones). It does not protect against someone who can unlock your phone and open DocVault. That is what the app lock is for.
 
-What this protects against: someone reading the index out of a phone image, a leaked backup of the app data, or another app. It does not protect against someone who can unlock your phone and open DocVault. That is what the app lock is for.
+Upgrading from an older version: existing unencrypted files and older plain `index.json` files are automatically and idempotently migrated to encrypted format at startup. If the encrypted data can't be read (for example the phone's secure storage was reset), DocVault shows a recovery screen and **never overwrites anything**; restoring a backup brings you back.
 
-Upgrading from an older version: the old plain `index.json` is encrypted automatically at first start and the plain copy deleted. If the encrypted data can't be read (for example the phone's secure storage was reset), DocVault shows a recovery screen and **never overwrites anything**; restoring a backup brings you back.
-
-Backups: a backup contains a readable copy of the index so it can be restored on any phone. **Always set a backup password** (AES-256 zip) when sharing or manually exporting.
+Backups: a backup contains a readable copy of the index and files in a staging archive so it can be restored on any phone. **Always set a backup password** (AES-256 zip) when sharing or manually exporting.
 - **Weekly auto backup:** DocVault automatically creates a full backup every Sunday at 3:00 AM, containing all documents, notes, reminders, favorites, profile and folder structure. It overwrites the previous backup file so only a single latest backup is retained under the standard Android backups folder: `/storage/emulated/0/Backups/DocVault/DocVault-backup.zip` (with fallback to app-specific external storage `Android/data/com.docvault.app/files/Backups/DocVault-backup.zip`). Can be triggered on demand or toggled in Settings → Backup.
 
 ## Reading details from scans
@@ -142,9 +144,8 @@ Everything lives in the app's private storage under `vault/`: `index.json` plus 
 
 ## Known limits (v1)
 
-- Documents are protected by the app lock and Android's private app storage, **not** encrypted at rest. Someone with root access or a forensic tool could read them. Encrypted storage is the natural next step.
-- A backup made without a password is a plain zip of every document. Use a password.
-- The index is encrypted but the files are not (see Encryption). Don't save full card or bank account numbers as details.
+- Both the index and documents are encrypted at rest with AES-256-GCM backed by Android Keystore.
+- A backup made without a password is a plain zip of every document. Always use a password when exporting.
 - Notification text is handled by Android, outside the app's encryption. Turn off "Show document names" if others can see your lock screen.
 - The home-screen widget is drawn by the launcher, outside the app lock and encryption: anyone who sees the home screen sees favorite document names (and previews, if turned on). Opening or sharing from it still needs unlock. Untick "Widget" on a favorite to keep it off.
 - Android widgets can't scroll sideways, so the widget pages with arrows instead of a swipe.

@@ -4,6 +4,16 @@ import { base64ToBytes, bytesToBase64 } from "../scan/base64";
 
 const KEY_NAME = "docvault_master_key_v1";
 
+let cachedKey: Uint8Array | null = null;
+
+export function getCachedKey(): Uint8Array | null {
+  return cachedKey;
+}
+
+export function setCachedKey(k: Uint8Array | null) {
+  cachedKey = k;
+}
+
 /**
  * The master key is a random 256-bit value kept in Android's Keystore-backed secure storage.
  * It never leaves the phone and is not derived from any password.
@@ -12,8 +22,12 @@ const KEY_NAME = "docvault_master_key_v1";
  * the real key, because that would make existing data unreadable forever.
  */
 export async function loadKey(create: boolean): Promise<Uint8Array | null> {
+  if (cachedKey) return cachedKey;
   const stored = await SecureStore.getItemAsync(KEY_NAME);
-  if (stored) return base64ToBytes(stored);
+  if (stored) {
+    cachedKey = base64ToBytes(stored);
+    return cachedKey;
+  }
   if (!create) return null;
   const key = Crypto.getRandomBytes(32);
   const b64 = bytesToBase64(key);
@@ -21,6 +35,7 @@ export async function loadKey(create: boolean): Promise<Uint8Array | null> {
   if ((await SecureStore.getItemAsync(KEY_NAME)) !== b64) {
     throw new Error("The encryption key could not be saved on this phone.");
   }
+  cachedKey = key;
   return key;
 }
 
@@ -29,9 +44,11 @@ export async function loadKey(create: boolean): Promise<Uint8Array | null> {
  * agreed that the data encrypted with the old key can't be read any more.
  */
 export async function replaceKey(): Promise<Uint8Array> {
+  cachedKey = null;
   await SecureStore.deleteItemAsync(KEY_NAME).catch(() => undefined);
   const key = await loadKey(true);
   if (!key) throw new Error("The encryption key could not be saved on this phone.");
+  cachedKey = key;
   return key;
 }
 
