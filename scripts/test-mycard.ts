@@ -109,4 +109,8 @@ assert(!qrWithoutMedOrAddr.includes("Penicillin"), "QR text excludes medical det
 assert(!qrWithoutMedOrAddr.includes("12 MG Road"), "QR text excludes address when showAddress is false");
 assert(qrWithoutMedOrAddr.includes("Amit (Husband): 99999 11111"), "QR text still keeps emergency contacts when medical/address hidden");
 
+import { DEFAULT_SETTINGS } from "../src/types";
+assert(DEFAULT_SETTINGS.lockCardMode === "qr", "default lockscreen card mode is QR code");
+assert(DEFAULT_SETTINGS.lockCardSize === "medium", "default lockscreen card size is medium");
+
 console.log("\nAll My card tests passed.");
