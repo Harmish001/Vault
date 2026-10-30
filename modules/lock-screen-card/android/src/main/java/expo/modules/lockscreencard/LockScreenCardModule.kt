@@ -43,6 +43,8 @@ class Card : Record {
   @Field val photo: String? = null
   @Field val qrPayload: String = ""
   @Field val primaryContact: String = ""
+  @Field val mode: String = "qr"
+  @Field val size: String = "medium"
 }
 
 class LockScreenCardModule : Module() {
@@ -167,14 +169,21 @@ class LockScreenCardModule : Module() {
       canvas.drawPaint(Paint().apply { shader = LinearGradient(0f, 0f, 0f, h.toFloat(), accent, dark, Shader.TileMode.CLAMP) })
     }
 
-    // Sizes scale with the screen width so the card looks the same on every phone.
+    // Sizes scale with screen width and selected size option (small, medium, large)
     val u = w / 100f
-    val margin = 7 * u
-    val pad = 4.5f * u
+    val isSmall = card.size.equals("small", ignoreCase = true)
+    val isLarge = card.size.equals("large", ignoreCase = true)
+    val marginU = if (isSmall) 15f else if (isLarge) 7f else 11f
+    val padU = if (isSmall) 3.0f else if (isLarge) 4.5f else 3.8f
+    val scale = if (isSmall) 0.72f else if (isLarge) 1.0f else 0.86f
+    val qrMaxU = if (isSmall) 28f else if (isLarge) 50f else 38f
+
+    val margin = marginU * u
+    val pad = padU * u
     val inner = (w - 2 * margin - 2 * pad).toInt()
 
     fun text(size: Float, color: Int, bold: Boolean = false, spacing: Float = 0f) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-      textSize = size * u
+      textSize = size * scale * u
       this.color = color
       typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
       letterSpacing = spacing
@@ -185,18 +194,21 @@ class LockScreenCardModule : Module() {
 
     val ink = Color.rgb(28, 28, 30)
     val muted = Color.rgb(110, 110, 118)
+    val isQrMode = !card.mode.equals("details", ignoreCase = true)
     val qrContent = card.qrPayload.takeIf { it.isNotBlank() } ?: buildFallbackQrText(card)
-    val qrBmp = generateQrBitmap(qrContent, 512)
+    val qrBmp = if (isQrMode) generateQrBitmap(qrContent, 512) else null
 
     val header = layout("IN CASE OF EMERGENCY", text(3.2f, Color.WHITE, bold = true, spacing = 0.08f), 1, Layout.Alignment.ALIGN_CENTER)
-    val headerH = header.height + 2 * (2.4f * u)
-    val gap = 2.0f * u
+    val headerPadY = 2.4f * scale * u
+    val headerH = header.height + 2 * headerPadY
+    val gap = 2.0f * scale * u
 
-    if (qrBmp != null) {
+    if (isQrMode && qrBmp != null) {
       val name = card.name.takeIf { it.isNotBlank() }?.let { layout(it, text(4.6f, ink, bold = true), 1, Layout.Alignment.ALIGN_CENTER) }
       val sub = layout("Scan QR with camera for emergency info", text(2.7f, muted), 2, Layout.Alignment.ALIGN_CENTER)
 
-      val qrSize = minOf(inner.toFloat() * 0.72f, 50 * u)
+      val qrFraction = if (isSmall) 0.58f else if (isLarge) 0.72f else 0.65f
+      val qrSize = minOf(inner.toFloat() * qrFraction, qrMaxU * u)
       val primary = card.primaryContact.takeIf { it.isNotBlank() }
         ?: card.lines.firstOrNull { it.label.startsWith("Call", ignoreCase = true) }?.let { "${it.label}: ${it.value}" }
       val primaryLayout = primary?.let { layout("📞 $it", text(3.0f, ink, bold = true), 1, Layout.Alignment.ALIGN_CENTER) }
@@ -205,15 +217,15 @@ class LockScreenCardModule : Module() {
       var bodyH = pad
       name?.let { bodyH += it.height + gap * 0.8f }
       bodyH += sub.height + gap
-      bodyH += qrSize + (2.5f * u) + gap
+      bodyH += qrSize + (2.5f * scale * u) + gap
       primaryLayout?.let { bodyH += it.height + gap }
       footer?.let { bodyH += it.height + gap }
       bodyH += pad - gap
       val cardH = headerH + bodyH
 
-      val top = maxOf(h * 0.26f, minOf(h * 0.46f, h * 0.86f - cardH))
+      val top = maxOf(h * 0.25f, minOf(h * 0.44f, h * 0.86f - cardH))
       val rect = RectF(margin, top, w - margin, top + cardH)
-      val radius = 4.5f * u
+      val radius = 4.5f * scale * u
 
       canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(245, 255, 255, 255) })
       canvas.save()
@@ -221,7 +233,7 @@ class LockScreenCardModule : Module() {
       canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent })
       canvas.restore()
 
-      var y = top + 2.4f * u
+      var y = top + headerPadY
       fun draw(l: StaticLayout) {
         canvas.save()
         canvas.translate(margin + pad, y)
@@ -236,49 +248,52 @@ class LockScreenCardModule : Module() {
       draw(sub); y += gap
 
       // Draw QR Box container
-      val qrPad = 1.2f * u
+      val qrPad = 1.2f * scale * u
       val qrLeft = margin + pad + (inner - qrSize) / 2f
       val qrBox = RectF(qrLeft - qrPad, y - qrPad, qrLeft + qrSize + qrPad, y + qrSize + qrPad)
-      canvas.drawRoundRect(qrBox, 2.5f * u, 2.5f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
-      canvas.drawRoundRect(qrBox, 2.5f * u, 2.5f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      val boxRadius = 2.5f * scale * u
+      canvas.drawRoundRect(qrBox, boxRadius, boxRadius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+      canvas.drawRoundRect(qrBox, boxRadius, boxRadius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(35, 0, 0, 0)
         style = Paint.Style.STROKE
         strokeWidth = 1f * u
       })
       canvas.drawBitmap(qrBmp, null, RectF(qrLeft, y, qrLeft + qrSize, y + qrSize), Paint(Paint.FILTER_BITMAP_FLAG))
-      y += qrSize + (2.5f * u) + gap
+      y += qrSize + (2.5f * scale * u) + gap
 
       primaryLayout?.let { draw(it); y += gap }
       footer?.let { draw(it) }
       return bmp
     }
 
-    // Fallback text rendering if QR code generation is unavailable
-    val name = card.name.takeIf { it.isNotBlank() }?.let { layout(it, text(6.2f, ink, bold = true), 2) }
-    val rows = card.lines.filter { it.value.isNotBlank() }.map {
-      layout(it.label.uppercase(), text(2.9f, muted, spacing = 0.06f), 1) to layout(it.value, text(4.6f, ink, bold = true))
+    // Card with details (or fallback text rendering if QR is unavailable)
+    val name = card.name.takeIf { it.isNotBlank() }?.let { layout(it, text(5.4f, ink, bold = true), 2) }
+    val maxRows = if (isSmall) 3 else 6
+    val displayedLines = card.lines.filter { it.value.isNotBlank() }.take(maxRows)
+    val rows = displayedLines.map {
+      layout(it.label.uppercase(), text(2.6f, muted, spacing = 0.06f), 1) to layout(it.value, text(3.8f, ink, bold = true))
     }
-    val footer = card.footer.takeIf { it.isNotBlank() }?.let { layout(it, text(3.3f, muted)) }
+    val footer = card.footer.takeIf { it.isNotBlank() }?.let { layout(it, text(2.8f, muted), 2) }
 
-    val headerHText = header.height + 2 * (2.6f * u)
-    val gapText = 2.6f * u
+    val headerHText = header.height + 2 * (2.4f * scale * u)
+    val gapText = 2.2f * scale * u
     var bodyH = pad
     name?.let { bodyH += it.height + gapText }
-    rows.forEach { (l, v) -> bodyH += l.height + 0.6f * u + v.height + gapText }
+    rows.forEach { (l, v) -> bodyH += l.height + 0.5f * scale * u + v.height + gapText }
     footer?.let { bodyH += it.height + gapText }
     bodyH += pad - gapText
     val cardH = headerHText + bodyH
 
-    val top = maxOf(h * 0.30f, minOf(h * 0.50f, h * 0.86f - cardH))
+    val top = maxOf(h * 0.26f, minOf(h * 0.46f, h * 0.86f - cardH))
     val rect = RectF(margin, top, w - margin, top + cardH)
-    val radius = 4.5f * u
-    canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(240, 255, 255, 255) })
+    val radius = 4.5f * scale * u
+    canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(242, 255, 255, 255) })
     canvas.save()
     canvas.clipRect(rect.left, rect.top, rect.right, rect.top + headerHText)
     canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent })
     canvas.restore()
 
-    var y = top + 2.6f * u
+    var y = top + 2.4f * scale * u
     fun draw(l: StaticLayout) {
       canvas.save()
       canvas.translate(margin + pad, y)
@@ -289,7 +304,7 @@ class LockScreenCardModule : Module() {
     draw(header)
     y = top + headerHText + pad
     name?.let { draw(it); y += gapText }
-    rows.forEach { (l, v) -> draw(l); y += 0.6f * u; draw(v); y += gapText }
+    rows.forEach { (l, v) -> draw(l); y += 0.5f * scale * u; draw(v); y += gapText }
     footer?.let { draw(it) }
     return bmp
   }

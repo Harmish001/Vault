@@ -26,10 +26,12 @@
       ],
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.READ_CONTACTS"
       ]
     },
     "plugins": [
+      "expo-contacts",
       "expo-font",
       [
         "expo-splash-screen",

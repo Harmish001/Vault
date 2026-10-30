@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from "expo";
 import * as Notifications from "expo-notifications";
 import { buildEmergencyQrText, cardLines } from "./emergency-card";
-import type { Profile } from "./types";
+import type { LockCardMode, LockCardSize, Profile } from "./types";
 
 export { BLOOD_GROUPS, buildEmergencyQrText, cardLines } from "./emergency-card";
 
@@ -13,6 +13,8 @@ type CardInput = {
   photo?: string;
   qrPayload?: string;
   primaryContact?: string;
+  mode?: LockCardMode;
+  size?: LockCardSize;
 };
 
 const native = requireOptionalNativeModule<{
@@ -22,7 +24,13 @@ const native = requireOptionalNativeModule<{
   remove(): Promise<void>;
 }>("LockScreenCard");
 
-const toCard = (p: Profile, color: string, photo?: string): CardInput => {
+const toCard = (
+  p: Profile,
+  color: string,
+  photo?: string,
+  mode: LockCardMode = "qr",
+  size: LockCardSize = "medium"
+): CardInput => {
   const first = p.contacts.find((c) => c.phone.trim());
   const primaryContact = first
     ? `${first.relation.trim() ? first.relation.trim() + " · " : ""}${first.name.trim()}  ${first.phone.trim()}`.trim()
@@ -36,13 +44,27 @@ const toCard = (p: Profile, color: string, photo?: string): CardInput => {
     photo: photo || undefined,
     qrPayload: buildEmergencyQrText(p),
     primaryContact,
+    mode,
+    size,
   };
 };
 
 export const lockCardSupported = () => native?.isSupported() ?? false;
-export const previewLockCard = (p: Profile, color: string, photo?: string) => native?.preview(toCard(p, color, photo)) ?? Promise.resolve(null);
-export const applyLockCard = async (p: Profile, color: string, photo?: string) => {
-  await native?.apply(toCard(p, color, photo));
+export const previewLockCard = (
+  p: Profile,
+  color: string,
+  photo?: string,
+  mode: LockCardMode = "qr",
+  size: LockCardSize = "medium"
+) => native?.preview(toCard(p, color, photo, mode, size)) ?? Promise.resolve(null);
+export const applyLockCard = async (
+  p: Profile,
+  color: string,
+  photo?: string,
+  mode: LockCardMode = "qr",
+  size: LockCardSize = "medium"
+) => {
+  await native?.apply(toCard(p, color, photo, mode, size));
 };
 export const removeLockCard = async () => {
   await native?.remove();

@@ -162,6 +162,10 @@ export type Settings = {
   lockCardWallpaper?: boolean;
   /** emergency card as a notification that stays visible on the lock screen */
   lockCardNotification?: boolean;
+  /** lock-screen card type: QR code or details card */
+  lockCardMode?: LockCardMode;
+  /** lock-screen card size: small, medium (default), or large */
+  lockCardSize?: LockCardSize;
   /** background photo for the lock-screen card, a file inside the app */
   lockCardPhoto?: string;
   /** show separate tabs for All Notes and Secure / Passwords inside the Notes screen */
@@ -176,6 +180,9 @@ export type Settings = {
   documentsProviderEnabled?: boolean;
 };
 
+export type LockCardMode = "qr" | "details";
+export type LockCardSize = "small" | "medium" | "large";
+
 export const DEFAULT_SETTINGS: Settings = {
   lockEnabled: true,
   lockAfterSec: 60,
@@ -187,6 +194,8 @@ export const DEFAULT_SETTINGS: Settings = {
   widgetThumbnails: false,
   widgetHidden: [],
   fileSort: "added",
+  lockCardMode: "qr",
+  lockCardSize: "medium",
   notesTabsEnabled: true,
   autoBackupEnabled: true,
   documentsProviderEnabled: true,

@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   ToastAndroid,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
@@ -30,6 +31,10 @@ type Props = {
 export default function NotesView({ navigation }: Props) {
   const { notes, togglePinNote, deleteNote, favorites, toggleFavorite } = useVault();
   const { settings } = useSettings();
+  const { width: windowWidth } = useWindowDimensions();
+
+  // 2 notes per row: screen width minus 32 (padding 16 on each side) minus 10 (gap between cards)
+  const cardWidth = Math.floor((windowWidth - 32 - 10) / 2);
 
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<TabMode>("all");
@@ -108,6 +113,7 @@ export default function NotesView({ navigation }: Props) {
         style={({ pressed }) => [
           styles.noteCard,
           {
+            width: cardWidth,
             backgroundColor: palette.bg,
             borderColor: palette.line,
           },
@@ -117,25 +123,19 @@ export default function NotesView({ navigation }: Props) {
         accessibilityLabel={`Note: ${note.title || "Untitled"}`}
       >
         <View style={styles.cardHeader}>
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
-            {note.isSecret ? (
-              <View style={styles.lockBadge}>
-                <Feather name="lock" size={13} color={colors.primary} />
-                <Text style={styles.lockText}>Secret</Text>
-              </View>
-            ) : null}
+          <View style={{ flex: 1, marginRight: 4 }}>
             {note.title ? (
               <Text
                 style={[styles.noteTitle, { color: palette.text }]}
-                numberOfLines={1}
+                numberOfLines={2}
               >
                 {note.title}
               </Text>
             ) : null}
           </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             {note.pinned ? (
-              <Feather name="bookmark" size={16} color={colors.primary} />
+              <Feather name="bookmark" size={15} color={colors.primary} />
             ) : null}
             <FavStar
               on={isFav}
@@ -145,12 +145,21 @@ export default function NotesView({ navigation }: Props) {
           </View>
         </View>
 
+        {note.isSecret ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 }}>
+            <View style={styles.lockBadge}>
+              <Feather name="lock" size={11} color={colors.primary} />
+              <Text style={styles.lockText}>Secret</Text>
+            </View>
+          </View>
+        ) : null}
+
         {note.content ? (
           <Text
             style={[styles.noteContent, { color: palette.text }]}
-            numberOfLines={4}
+            numberOfLines={5}
           >
-            {note.isSecret ? "••••••••••••••••••••" : note.content}
+            {note.isSecret ? "••••••••••••" : note.content}
           </Text>
         ) : (
           <Text style={[styles.noteContent, { color: colors.muted, fontStyle: "italic" }]}>
@@ -173,7 +182,7 @@ export default function NotesView({ navigation }: Props) {
             >
               <Feather
                 name={isCopied ? "check" : "copy"}
-                size={14}
+                size={12}
                 color={isCopied ? colors.onPrimary : colors.primary}
               />
               <Text
@@ -262,7 +271,7 @@ export default function NotesView({ navigation }: Props) {
             {pinnedNotes.length > 0 ? (
               <View>
                 <Text style={styles.sectionHeading}>PINNED</Text>
-                <View style={{ gap: 10 }}>{pinnedNotes.map(renderNoteCard)}</View>
+                <View style={styles.notesGrid}>{pinnedNotes.map(renderNoteCard)}</View>
               </View>
             ) : null}
 
@@ -271,7 +280,7 @@ export default function NotesView({ navigation }: Props) {
                 {pinnedNotes.length > 0 ? (
                   <Text style={styles.sectionHeading}>OTHERS</Text>
                 ) : null}
-                <View style={{ gap: 10 }}>{otherNotes.map(renderNoteCard)}</View>
+                <View style={styles.notesGrid}>{otherNotes.map(renderNoteCard)}</View>
               </View>
             ) : null}
           </View>
@@ -359,25 +368,33 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
     marginHorizontal: 16,
-    marginBottom: 6,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: 3,
+    marginBottom: 12,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 30,
+    padding: 4,
     borderWidth: 1,
     borderColor: colors.line,
+    gap: 4,
   },
   tabItem: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.sm,
+    borderRadius: 24,
+    backgroundColor: "transparent",
   },
   tabItemActive: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surface,
+    elevation: 2,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
   },
   tabLabel: {
-    fontFamily: fonts.body,
+    fontFamily: fonts.medium,
     fontSize: 13,
     color: colors.muted,
   },
@@ -393,11 +410,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginLeft: 4,
   },
+  notesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
   noteCard: {
     borderRadius: radius.md,
     borderWidth: 1.5,
-    padding: 14,
-    gap: 8,
+    padding: 12,
+    gap: 6,
+    minHeight: 110,
+    justifyContent: "space-between",
   },
   cardHeader: {
     flexDirection: "row",
