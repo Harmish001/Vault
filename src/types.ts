@@ -178,6 +178,8 @@ export type Settings = {
   autoBackupPath?: string;
   /** show DocVault inside the system file picker (Documents Provider) */
   documentsProviderEnabled?: boolean;
+  /** whether the initial family folders setup popup has been completed or dismissed */
+  familySetupDone?: boolean;
 };
 
 export type LockCardMode = "qr" | "details";
@@ -199,5 +201,6 @@ export const DEFAULT_SETTINGS: Settings = {
   notesTabsEnabled: true,
   autoBackupEnabled: true,
   documentsProviderEnabled: true,
+  familySetupDone: false,
 };
 

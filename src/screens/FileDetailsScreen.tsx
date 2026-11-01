@@ -18,6 +18,7 @@ import { FileField } from "../types";
 import {
   addYears,
   cleanTag,
+  DEFAULT_TAGS,
   folderPath,
   formatBytes,
   formatDate,
@@ -63,9 +64,10 @@ export default function FileDetailsScreen({
 
   const tags = file.tags ?? [];
   const fields = file.fields ?? [];
-  const suggestions = Array.from(new Set(files.flatMap((f) => f.tags ?? [])))
+  const existingTags = files.flatMap((f) => f.tags ?? []);
+  const suggestions = Array.from(new Set([...existingTags, ...DEFAULT_TAGS]))
     .filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase()))
-    .slice(0, 8);
+    .slice(0, 10);
 
   const setExpiry = (d?: Date) => expiry.set(file, d);
 

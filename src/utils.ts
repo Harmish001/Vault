@@ -118,6 +118,21 @@ export function sortFiles(files: VaultFile[], by: FileSort = "added"): VaultFile
   return [...files].sort(cmp);
 }
 
+export const DEFAULT_TAGS = [
+  "Aadhaar",
+  "PAN Card",
+  "Driving License",
+  "Passport",
+  "Voter ID",
+  "Vehicle RC",
+  "Insurance",
+  "Medical",
+  "Bank",
+  "Education",
+  "Tax",
+  "Bills",
+] as const;
+
 export const cleanTag = (raw: string) => raw.trim().replace(/^#+/, "").trim().slice(0, 24);
 
 /** Adds tags, skipping ones already there in any letter case. */
