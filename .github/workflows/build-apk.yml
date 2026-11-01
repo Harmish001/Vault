@@ -73,7 +73,19 @@ jobs:
       - name: Name the APK
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk "dist/DocVault-build-${{ github.run_number }}.apk"
+          if [ -f android/app/build/outputs/apk/release/app-arm64-v8a-release.apk ]; then
+            # Priority: arm64-v8a is the lightweight ~18MB APK for modern Android phones
+            cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/DocVault-build-${{ github.run_number }}-arm64.apk"
+            cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/DocVault-build-${{ github.run_number }}.apk"
+            if [ -f android/app/build/outputs/apk/release/app-universal-release.apk ]; then
+              cp android/app/build/outputs/apk/release/app-universal-release.apk "dist/DocVault-build-${{ github.run_number }}-universal.apk"
+            fi
+          elif [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "dist/DocVault-build-${{ github.run_number }}.apk"
+          else
+            find android/app/build/outputs/apk/release -name "*.apk" -exec cp {} dist/ \;
+          fi
+          ls -lh dist/
 
       - uses: actions/upload-artifact@v4
         with:

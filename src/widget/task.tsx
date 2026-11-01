@@ -1,5 +1,7 @@
 import React from "react";
+import { ToastAndroid } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Clipboard from "expo-clipboard";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { requestWidgetUpdate, type WidgetInfo, type WidgetTaskHandler } from "react-native-android-widget";
 import { readVaultIndex, vaultFilePath } from "../storage/vault";
@@ -43,7 +45,7 @@ function perPage(info: WidgetInfo) {
   return Math.max(2, Math.min(4, Math.floor((info.width - 16) / 110)));
 }
 
-async function build(info: WidgetInfo, data: WidgetData, step = 0) {
+async function build(info: WidgetInfo, data: WidgetData, step = 0, copiedId?: string) {
   const compact = info.widgetName === WIDGET_CARD;
   if (!data.index) return <FavoritesWidget compact={compact} cards={[]} page={0} pages={1} unavailable />;
 
@@ -59,19 +61,54 @@ async function build(info: WidgetInfo, data: WidgetData, step = 0) {
   const cards: WidgetCard[] = await Promise.all(
     visible.map(async (it) => ({
       ...it,
+      isCopied: it.id === copiedId,
       thumb: data.settings.widgetThumbnails && it.storedAs && kindOf(it.mime, it.name) === "image" ? await thumb(it.storedAs) : null,
     }))
   );
   return <FavoritesWidget compact={compact} cards={cards} page={page} pages={pages} />;
 }
 
-/** Runs headless when Android adds, resizes or updates a widget, or a pager arrow is tapped. */
-export const widgetTaskHandler: WidgetTaskHandler = async ({ widgetInfo, widgetAction, clickAction, renderWidget }) => {
+/** Runs headless when Android adds, resizes or updates a widget, or a pager arrow or copy button is tapped. */
+export const widgetTaskHandler: WidgetTaskHandler = async ({ widgetInfo, widgetAction, clickAction, clickActionData, renderWidget }) => {
   if (widgetAction === "WIDGET_DELETED") {
     const { [widgetInfo.widgetId]: _gone, ...rest } = await readPages();
     await writePages(rest);
     return;
   }
+
+  // Handle instant headless copy without opening or unlocking the app
+  if (clickAction === "COPY_ITEM") {
+    const targetId = (clickActionData?.id as string) || "";
+    const data: WidgetData = { index: await readVaultIndex(), settings: await readSettings() };
+
+    // 1. Check if it's a note
+    const note = data.index?.notes?.find((n) => n.id === targetId);
+    if (note) {
+      const text = [note.title?.trim(), note.content?.trim()].filter(Boolean).join("\n\n");
+      await Clipboard.setStringAsync(text || note.title || "");
+      ToastAndroid.show("Note copied to clipboard", ToastAndroid.SHORT);
+      renderWidget(await build(widgetInfo, data, 0, targetId));
+      return;
+    }
+
+    // 2. Check if it's a file with fields / notes
+    const file = data.index?.files?.find((f) => f.id === targetId);
+    if (file) {
+      const parts: string[] = [];
+      if (file.fields?.length) {
+        for (const field of file.fields) {
+          if (field.value?.trim()) parts.push(`${field.label}: ${field.value.trim()}`);
+        }
+      }
+      if (file.notes?.trim()) parts.push(file.notes.trim());
+      const toCopy = parts.join("\n") || file.name;
+      await Clipboard.setStringAsync(toCopy);
+      ToastAndroid.show("Details copied to clipboard", ToastAndroid.SHORT);
+      renderWidget(await build(widgetInfo, data, 0, targetId));
+      return;
+    }
+  }
+
   const step = widgetAction === "WIDGET_CLICK" ? (clickAction === "NEXT" ? 1 : clickAction === "PREV" ? -1 : 0) : 0;
   const data: WidgetData = { index: await readVaultIndex(), settings: await readSettings() };
   renderWidget(await build(widgetInfo, data, step));
