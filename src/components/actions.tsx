@@ -12,11 +12,13 @@ import { FolderPicker } from "./FolderPicker";
 import { FieldModal, useExpiry } from "./QuickDetails";
 import { ActionMenu, PromptModal } from "./ui";
 import { CompressModal } from "./CompressModal";
+import { useOpenFile } from "../hooks/useOpenFile";
 
 /** Menu + rename + move + delete for one file. Render `element` once in the screen. */
 export function useFileActions() {
   const vault = useVault();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const openFile = useOpenFile(navigation);
   const [target, setTarget] = useState<VaultFile | null>(null);
   const [menu, setMenu] = useState(false);
   const [rename, setRename] = useState(false);
@@ -41,7 +43,7 @@ export function useFileActions() {
         items={
           target
             ? [
-                { label: "Open", icon: "external-link", onPress: () => vault.openFile(target) },
+                { label: "Open", icon: "external-link", onPress: () => target && openFile(target) },
                 {
                   label: "Details & reminders",
                   icon: "info",

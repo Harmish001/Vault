@@ -37,6 +37,7 @@ import NotesScreen from "./src/screens/NotesScreen";
 import NoteEditScreen from "./src/screens/NoteEditScreen";
 import SmartShareScreen from "./src/screens/SmartShareScreen";
 import ShareQRScreen from "./src/screens/ShareQRScreen";
+import FileViewerScreen from "./src/screens/FileViewerScreen";
 
 import { refreshWidgets } from "./src/widget";
 import { syncFolderShortcuts } from "./src/folderShortcuts";
@@ -46,6 +47,7 @@ import { showCardNotification } from "./src/emergency";
 import { parseBill } from "./src/capture/parseBill";
 import { getNextWeeklyBackupTime, isAutoBackupDue } from "./src/auto-backup-plan";
 import { scheduleWeeklyAutoBackupAlarm } from "./src/autoBackup";
+import { canViewInApp } from "./src/screens/FileViewerScreen";
 
 type AppLink = { action: "open" | "share" | "copy" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
 
@@ -287,6 +289,8 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         .catch(() => ToastAndroid.show("Couldn't copy details", ToastAndroid.SHORT));
     } else if (appLink.action === "share") {
       shareFile(f).catch(() => Alert.alert("Couldn't share this file"));
+    } else if (canViewInApp(f.mime, f.name)) {
+      navRef.navigate("FileViewer", { fileId: f.id });
     } else {
       openFile(f);
     }
@@ -313,6 +317,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="NoteEdit" component={NoteEditScreen} />
         <Stack.Screen name="SmartShare" component={SmartShareScreen} />
         <Stack.Screen name="ShareQR" component={ShareQRScreen} options={{ animation: "slide_from_bottom" }} />
+        <Stack.Screen name="FileViewer" component={FileViewerScreen} />
       </Stack.Navigator>
 
     </NavigationContainer>

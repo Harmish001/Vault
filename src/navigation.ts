@@ -20,6 +20,7 @@ export type RootStackParamList = {
   Save: { pick?: boolean } | undefined;
   Scan: { folderId?: string } | undefined;
   FileDetails: { fileId: string };
+  FileViewer: { fileId: string };
   Reminders: undefined;
   ReminderEdit: { id?: string; draft?: CaptureDraft } | undefined;
   ShareChooser: undefined;

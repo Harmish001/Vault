@@ -34,12 +34,14 @@ import {
   ScreenHeader,
 } from "../components/ui";
 import { CompressModal } from "../components/CompressModal";
+import { useOpenFile } from "../hooks/useOpenFile";
 
 export default function FileDetailsScreen({
   navigation,
   route,
 }: NativeStackScreenProps<RootStackParamList, "FileDetails">) {
-  const { files, folders, updateFile, fileUri, openFile } = useVault();
+  const { files, folders, updateFile, fileUri } = useVault();
+  const openFile = useOpenFile(navigation);
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const file = files.find((f) => f.id === route.params.fileId);

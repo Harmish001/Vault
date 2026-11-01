@@ -17,10 +17,12 @@ import { useFileSelection } from "../components/batch";
 import { useNameSuggestions } from "../components/NameSuggestions";
 import { ActionMenu, EmptyState, FabBar, IconButton, Pill, PromptModal, ScreenHeader } from "../components/ui";
 import { useLock } from "../lock/LockProvider";
+import { useOpenFile } from "../hooks/useOpenFile";
 
 export default function FolderScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "Folder">) {
   const { id } = route.params;
-  const { folders, files, createFolder, addFiles, fileUri, openFile, favorites, toggleFavorite } = useVault();
+  const { folders, files, createFolder, addFiles, fileUri, favorites, toggleFavorite } = useVault();
+  const openFile = useOpenFile(navigation);
   const { settings, update } = useSettings();
   const insets = useSafeAreaInsets();
   const { runExternal } = useLock();
