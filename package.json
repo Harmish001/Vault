@@ -8,6 +8,7 @@
     "icons": "python3 scripts/make_icons.py",
     "prebuild": "expo prebuild --platform android --no-install",
     "build:apk": "expo prebuild --platform android --no-install && cd android && ./gradlew assembleRelease",
+    "build:apk:arm64": "expo prebuild --platform android --no-install && cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a",
     "postinstall": "patch-package",
     "test": "npx --yes tsx scripts/test-scan.ts && npx --yes tsx scripts/test-reminders.ts && npx --yes tsx scripts/test-crypto.ts && npx --yes tsx scripts/test-file-crypto.ts && npx --yes tsx scripts/test-file-storage.ts && npx --yes tsx scripts/test-ocr.ts && npx --yes tsx scripts/test-capture.ts && npx --yes tsx scripts/test-favorites.ts && npx --yes tsx scripts/test-naming.ts && npx --yes tsx scripts/test-sort.ts && npx --yes tsx scripts/test-mycard.ts && npx --yes tsx scripts/test-notes.ts && npx --yes tsx scripts/test-auto-backup.ts && npx --yes tsx scripts/test-documents-provider.ts && npx --yes tsx scripts/test-share-code.ts && npx --yes tsx scripts/test-compress.ts && npx --yes tsx scripts/test-sharing-perf.ts",
     "android": "expo run:android",
@@ -56,6 +57,7 @@
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "^15.16.0",
+    "react-native-webview": "^14.0.1",
     "react-native-worklets": "0.5.1",
     "react-native-zip-archive": "^7.1.3"
   },

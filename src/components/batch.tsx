@@ -8,7 +8,7 @@ import type { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
 import { VaultFile } from "../types";
-import { cleanTag, plural } from "../utils";
+import { cleanTag, DEFAULT_TAGS, plural } from "../utils";
 import { colors, fonts, radius } from "../theme";
 import { FolderPicker } from "./FolderPicker";
 import { ActionMenu, IconButton, PromptModal, ScreenHeader } from "./ui";
@@ -52,7 +52,7 @@ export function useFileSelection(visible: VaultFile[], currentFolderId?: string)
   const allSelected = selected.length === visible.length;
   const count = plural(selected.length, "file");
   const tagSuggestions = useMemo(
-    () => Array.from(new Set(vault.files.flatMap((f) => f.tags ?? []))).slice(0, 8),
+    () => Array.from(new Set([...vault.files.flatMap((f) => f.tags ?? []), ...DEFAULT_TAGS])).slice(0, 10),
     [vault.files]
   );
 

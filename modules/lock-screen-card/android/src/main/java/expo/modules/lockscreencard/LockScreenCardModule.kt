@@ -222,8 +222,8 @@ class LockScreenCardModule : Module() {
       footer?.let { bodyH += it.height + gap }
       bodyH += pad - gap
       val cardH = headerH + bodyH
-
-      val top = maxOf(h * 0.25f, minOf(h * 0.44f, h * 0.86f - cardH))
+      val bottomMargin = maxOf(h * 0.06f, margin)
+      val top = maxOf(h * 0.25f, h - cardH - bottomMargin)
       val rect = RectF(margin, top, w - margin, top + cardH)
       val radius = 4.5f * scale * u
 
@@ -284,7 +284,8 @@ class LockScreenCardModule : Module() {
     bodyH += pad - gapText
     val cardH = headerHText + bodyH
 
-    val top = maxOf(h * 0.26f, minOf(h * 0.46f, h * 0.86f - cardH))
+    val bottomMargin = maxOf(h * 0.06f, margin)
+    val top = maxOf(h * 0.25f, h - cardH - bottomMargin)
     val rect = RectF(margin, top, w - margin, top + cardH)
     val radius = 4.5f * scale * u
     canvas.drawRoundRect(rect, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(242, 255, 255, 255) })

@@ -24,6 +24,7 @@ import { useFileActions, useFolderActions } from "../components/actions";
 import { EmptyState } from "../components/ui";
 import * as DocumentPicker from "expo-document-picker";
 import { CompressModal, CompressTarget } from "../components/CompressModal";
+import { useOpenFile } from "../hooks/useOpenFile";
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -31,7 +32,8 @@ type Props = {
 };
 
 export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
-  const { folders, files, reminders, notes, fileUri, openFile, favorites, toggleFavorite, shareFile } = useVault();
+  const { folders, files, reminders, notes, fileUri, favorites, toggleFavorite, shareFile } = useVault();
+  const openFile = useOpenFile(navigation);
   const { noDeviceLock } = useLock();
   const [query, setQuery] = useState("");
   const [compressTarget, setCompressTarget] = useState<CompressTarget | null>(null);

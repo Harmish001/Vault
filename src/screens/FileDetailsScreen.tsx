@@ -18,6 +18,7 @@ import { FileField } from "../types";
 import {
   addYears,
   cleanTag,
+  DEFAULT_TAGS,
   folderPath,
   formatBytes,
   formatDate,
@@ -34,12 +35,14 @@ import {
   ScreenHeader,
 } from "../components/ui";
 import { CompressModal } from "../components/CompressModal";
+import { useOpenFile } from "../hooks/useOpenFile";
 
 export default function FileDetailsScreen({
   navigation,
   route,
 }: NativeStackScreenProps<RootStackParamList, "FileDetails">) {
-  const { files, folders, updateFile, fileUri, openFile } = useVault();
+  const { files, folders, updateFile, fileUri } = useVault();
+  const openFile = useOpenFile(navigation);
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const file = files.find((f) => f.id === route.params.fileId);
@@ -61,9 +64,10 @@ export default function FileDetailsScreen({
 
   const tags = file.tags ?? [];
   const fields = file.fields ?? [];
-  const suggestions = Array.from(new Set(files.flatMap((f) => f.tags ?? [])))
+  const existingTags = files.flatMap((f) => f.tags ?? []);
+  const suggestions = Array.from(new Set([...existingTags, ...DEFAULT_TAGS]))
     .filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase()))
-    .slice(0, 8);
+    .slice(0, 10);
 
   const setExpiry = (d?: Date) => expiry.set(file, d);
 

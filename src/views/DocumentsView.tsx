@@ -16,13 +16,15 @@ import { FileRow, FolderRow, FolderTile } from "../components/Rows";
 import { isFavorite } from "../favorites";
 import { useFileActions, useFolderActions } from "../components/actions";
 import { Button, EmptyState, FabBar, Pill, PromptModal } from "../components/ui";
+import { useOpenFile } from "../hooks/useOpenFile";
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
 export default function DocumentsView({ navigation }: Props) {
-  const { folders, files, createFolder, fileUri, openFile, favorites, toggleFavorite } = useVault();
+  const { folders, files, createFolder, fileUri, favorites, toggleFavorite } = useVault();
+  const openFile = useOpenFile(navigation);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const fileActions = useFileActions();

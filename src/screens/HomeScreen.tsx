@@ -3,7 +3,9 @@ import { Image, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { colors } from "../theme";
+import { useSettings } from "../storage/settings";
 import { IconButton, ScreenHeader } from "../components/ui";
+import { FamilySetupModal } from "../components/FamilySetupModal";
 import BottomNavBar, { TabKey } from "../components/BottomNavBar";
 import HomeDashboardView from "../views/HomeDashboardView";
 import DocumentsView from "../views/DocumentsView";
@@ -14,7 +16,9 @@ export default function HomeScreen({
   navigation,
   route,
 }: NativeStackScreenProps<RootStackParamList, "Home">) {
+  const { settings, update: updateSettings } = useSettings();
   const [activeTab, setActiveTab] = useState<TabKey>(route.params?.tab ?? "home");
+  const [familySetupOpen, setFamilySetupOpen] = useState(false);
 
   // Sync tab if route params change externally
   useEffect(() => {
@@ -22,6 +26,21 @@ export default function HomeScreen({
       setActiveTab(route.params.tab);
     }
   }, [route.params?.tab, activeTab]);
+
+  // Show family setup popup once on launch for new and existing users
+  useEffect(() => {
+    if (settings.familySetupDone === false) {
+      const timer = setTimeout(() => {
+        setFamilySetupOpen(true);
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [settings.familySetupDone]);
+
+  const handleCloseFamilySetup = () => {
+    setFamilySetupOpen(false);
+    updateSettings({ familySetupDone: true });
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -63,6 +82,11 @@ export default function HomeScreen({
 
       {/* Persistent Bottom Navigation Dock: [Documents] [Notes] [Home (Center)] [Reminders] */}
       <BottomNavBar active={activeTab} onChangeTab={setActiveTab} />
+
+      <FamilySetupModal
+        visible={familySetupOpen}
+        onClose={handleCloseFamilySetup}
+      />
     </View>
   );
 }

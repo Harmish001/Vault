@@ -18,6 +18,7 @@ import { autofillSelected, autofillSupported, openAutofillSettings, turnOffAutof
 import { formatLastBackupTime } from "../auto-backup-plan";
 import { getAutoBackupPath, getAutoBackupStatus } from "../autoBackup";
 import * as Clipboard from "expo-clipboard";
+import { FamilySetupModal } from "../components/FamilySetupModal";
 
 const OFFSET_OPTIONS = [
   { label: "90 days", d: 90 },
@@ -45,6 +46,7 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
   const [fillSelected, setFillSelected] = useState(autofillSelected);
   const [resolvedBackupPath, setResolvedBackupPath] = useState<string>("");
   const [backupFileSize, setBackupFileSize] = useState<number | null>(null);
+  const [familySetupOpen, setFamilySetupOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -422,6 +424,21 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
           </View>
         </Section>
 
+        <Section title="Family Folders">
+          <View style={styles.block}>
+            <Text style={styles.rowTitle}>Organise by Family Member</Text>
+            <Text style={styles.body}>
+              Quickly create dedicated folders for each family member (Dad, Mom, Rahul, Priya, etc.) to keep documents sorted.
+            </Text>
+            <Button
+              label="Set up family folders"
+              kind="secondary"
+              onPress={() => setFamilySetupOpen(true)}
+              style={{ marginTop: 12 }}
+            />
+          </View>
+        </Section>
+
         <Section title="Storage">
           <View style={styles.block}>
             <Text style={styles.rowTitle}>
@@ -455,6 +472,10 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
         confirmLabel="Restore"
         onCancel={() => setRestorePrompt(null)}
         onSubmit={(v) => restorePrompt && runRestore(restorePrompt, v)}
+      />
+      <FamilySetupModal
+        visible={familySetupOpen}
+        onClose={() => setFamilySetupOpen(false)}
       />
     </View>
   );

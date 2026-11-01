@@ -1091,10 +1091,10 @@ const styles = StyleSheet.create({
   },
   phoneCardContainer: {
     flex: 1,
-    justifyContent: "center",
+    justifyContent: "flex-end",
     alignItems: "center",
     width: "100%",
-    paddingBottom: 20,
+    paddingBottom: 22,
   },
   mockCard: {
     backgroundColor: "rgba(255, 255, 255, 0.96)",
