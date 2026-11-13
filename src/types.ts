@@ -182,10 +182,37 @@ export type Settings = {
   documentsProviderEnabled?: boolean;
   /** whether the initial family folders setup popup has been completed or dismissed */
   familySetupDone?: boolean;
+  /** last 10 copied values for quick copy feature */
+  recentCopies?: RecentCopy[];
+  /** saved share bundles */
+  shareBundles?: ShareBundle[];
 };
 
 export type LockCardMode = "qr" | "details";
 export type LockCardSize = "small" | "medium" | "large";
+
+/** Recently copied values for quick access */
+export type RecentCopy = {
+  /** What was copied: "Aadhaar Number", "PAN", etc */
+  label: string;
+  /** The value (masked for display) */
+  value: string;
+  /** Source file or note id */
+  sourceId: string;
+  /** Source type */
+  sourceKind: "file" | "note" | "reminder";
+  /** When copied */
+  copiedAt: number;
+};
+
+/** Pre-saved document bundles for quick sharing */
+export type ShareBundle = {
+  id: string;
+  name: string; // "KYC Docs", "Rental Docs"
+  description?: string;
+  fileIds: string[];
+  createdAt: number;
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   lockEnabled: true,

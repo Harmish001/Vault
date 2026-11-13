@@ -11,6 +11,7 @@ import HomeDashboardView from "../views/HomeDashboardView";
 import DocumentsView from "../views/DocumentsView";
 import NotesView from "../views/NotesView";
 import RemindersView from "../views/RemindersView";
+import InstantSearch from "../components/InstantSearch";
 
 export default function HomeScreen({
   navigation,
@@ -19,6 +20,7 @@ export default function HomeScreen({
   const { settings, update: updateSettings } = useSettings();
   const [activeTab, setActiveTab] = useState<TabKey>(route.params?.tab ?? "home");
   const [familySetupOpen, setFamilySetupOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Sync tab if route params change externally
   useEffect(() => {
@@ -56,6 +58,11 @@ export default function HomeScreen({
         right={
           <>
             <IconButton
+              icon="search"
+              label="Search"
+              onPress={() => setSearchOpen(true)}
+            />
+            <IconButton
               icon="heart"
               label="My Card"
               color={colors.primary}
@@ -86,6 +93,14 @@ export default function HomeScreen({
       <FamilySetupModal
         visible={familySetupOpen}
         onClose={handleCloseFamilySetup}
+      />
+
+      <InstantSearch
+        visible={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onOpenFile={(id) => navigation.navigate("FileDetails", { fileId: id })}
+        onOpenFolder={(id) => navigation.navigate("Folder", { id })}
+        onOpenNote={(id) => navigation.navigate("NoteEdit", { id })}
       />
     </View>
   );

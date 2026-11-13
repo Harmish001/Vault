@@ -7,15 +7,17 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   View,
 } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
+import * as Clipboard from "expo-clipboard";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
 import { colors, fonts, noteColors, radius } from "../theme";
-import { daysUntil, expiryInfo, fileSearchText, folderPath, plural } from "../utils";
+import { daysUntil, expiryInfo, fileSearchText, folderPath, maskValue, plural } from "../utils";
 import { nextDue } from "../reminders-plan";
 import { DueBadge, ExpiryBadge, FavStar, FileRow, FileThumb, FolderRow } from "../components/Rows";
 import { isFavorite } from "../favorites";
@@ -25,6 +27,8 @@ import { EmptyState } from "../components/ui";
 import * as DocumentPicker from "expo-document-picker";
 import { CompressModal, CompressTarget } from "../components/CompressModal";
 import { useOpenFile } from "../hooks/useOpenFile";
+import { useQuickCopy } from "../hooks/useQuickCopy";
+import { useShareBundles } from "../hooks/useShareBundles";
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -39,6 +43,8 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
   const [compressTarget, setCompressTarget] = useState<CompressTarget | null>(null);
   const fileActions = useFileActions();
   const folderActions = useFolderActions();
+  const { recentCopies } = useQuickCopy();
+  const { bundles, shareBundle, getBundleFiles } = useShareBundles();
 
   async function pickAndCompress() {
     try {
@@ -258,6 +264,129 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
         ) : (
           /* Normal Dashboard Content */
           <View style={{ paddingHorizontal: 16, gap: 18, paddingTop: 4 }}>
+            {/* Quick Copy - Recent Values */}
+            {recentCopies.length > 0 && (
+              <View>
+                <View style={styles.sectionHead}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                    <Feather name="copy" size={18} color={colors.primary} />
+                    <Text style={styles.sectionTitle}>Quick Copy</Text>
+                  </View>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8 }}
+                >
+                  {recentCopies.slice(0, 6).map((item, i) => (
+                    <Pressable
+                      key={`${item.sourceId}-${item.label}-${i}`}
+                      onPress={async () => {
+                        await Clipboard.setStringAsync(item.value);
+                        ToastAndroid.show(`${item.label} copied`, ToastAndroid.SHORT);
+                      }}
+                      style={({ pressed }) => [
+                        styles.quickCopyChip,
+                        pressed && { backgroundColor: colors.primary },
+                      ]}
+                    >
+                      {({ pressed }) => (
+                        <>
+                          <Feather
+                            name="copy"
+                            size={12}
+                            color={pressed ? colors.onPrimary : colors.primary}
+                          />
+                          <View>
+                            <Text
+                              style={[
+                                styles.quickCopyLabel,
+                                pressed && { color: colors.onPrimary },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {item.label}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.quickCopyValue,
+                                pressed && { color: colors.onPrimary + "cc" },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {maskValue(item.value)}
+                            </Text>
+                          </View>
+                        </>
+                      )}
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Share Bundles */}
+            {bundles.length > 0 && (
+              <View>
+                <View style={styles.sectionHead}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                    <Feather name="package" size={18} color={colors.accent} />
+                    <Text style={styles.sectionTitle}>Share Bundles</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => navigation.navigate("ShareBundles")}
+                    hitSlop={10}
+                  >
+                    <Text style={styles.sectionAction}>Manage</Text>
+                  </Pressable>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 10 }}
+                >
+                  {bundles.map((bundle) => {
+                    const bundleFiles = getBundleFiles(bundle.id);
+                    return (
+                      <Pressable
+                        key={bundle.id}
+                        onPress={() =>
+                          shareBundle(bundle.id).catch(() =>
+                            Alert.alert("Share failed", "Could not share bundle.")
+                          )
+                        }
+                        style={({ pressed }) => [
+                          styles.bundleCard,
+                          pressed && { opacity: 0.85 },
+                        ]}
+                      >
+                        <View style={styles.bundleIconBox}>
+                          <Feather name="package" size={20} color={colors.accent} />
+                        </View>
+                        <Text style={styles.bundleName} numberOfLines={1}>
+                          {bundle.name}
+                        </Text>
+                        <Text style={styles.bundleSub} numberOfLines={1}>
+                          {bundleFiles.length} {bundleFiles.length === 1 ? "file" : "files"}
+                        </Text>
+                        <View style={styles.bundleShareBtn}>
+                          <Feather name="share-2" size={14} color={colors.onPrimary} />
+                          <Text style={styles.bundleShareText}>Share</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                  <Pressable
+                    onPress={() => navigation.navigate("ShareBundles")}
+                    style={styles.bundleAddCard}
+                  >
+                    <Feather name="plus" size={24} color={colors.muted} />
+                    <Text style={styles.bundleAddText}>New Bundle</Text>
+                  </Pressable>
+                </ScrollView>
+              </View>
+            )}
+
             {/* Quick Overview Summary Row */}
             <View style={styles.statsRow}>
               <Pressable
@@ -796,5 +925,87 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 12,
     marginTop: 2,
+  },
+  quickCopyChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primaryLine,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minWidth: 120,
+  },
+  quickCopyLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: colors.primary,
+  },
+  quickCopyValue: {
+    fontFamily: fonts.body,
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 1,
+  },
+  bundleCard: {
+    width: 130,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    gap: 6,
+  },
+  bundleIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bundleName: {
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+    color: colors.ink,
+  },
+  bundleSub: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.muted,
+  },
+  bundleShareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    paddingVertical: 6,
+    marginTop: 4,
+  },
+  bundleShareText: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: colors.onPrimary,
+  },
+  bundleAddCard: {
+    width: 100,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  bundleAddText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.muted,
   },
 });
