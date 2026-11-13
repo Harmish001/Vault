@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -12,6 +12,7 @@ import { formatDate, maskValue, parseISODate } from "../utils";
 import { DueBadge } from "../components/Rows";
 import { EmptyState, FabBar, Pill } from "../components/ui";
 import { CATEGORY_DEFAULTS } from "../capture/billers";
+import CalendarView from "../components/CalendarView";
 
 let DocumentScanner: {
   scanDocument: (options?: { maxNumDocuments?: number }) => Promise<{ status?: string; scannedImages?: string[] }>;
@@ -29,8 +30,9 @@ type Props = {
 };
 
 export default function RemindersView({ navigation }: Props) {
-  const { reminders, updateReminder } = useVault();
+  const { reminders, files, updateReminder } = useVault();
   const { runExternal } = useLock();
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
 
   const { upcoming, finished } = useMemo(() => {
     const now = new Date();
@@ -72,30 +74,53 @@ export default function RemindersView({ navigation }: Props) {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 18 }}>
-        <Pressable
-          onPress={() => navigation.navigate("ReminderEdit", { plan: "recharge" })}
-          style={({ pressed }) => [styles.planCard, pressed && { opacity: 0.85 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Add a recharge or subscription"
-        >
-          <View style={styles.iconBox}>
-            <Feather name="smartphone" size={18} color={colors.primary} />
+        {/* View toggle */}
+        <View style={styles.viewToggle}>
+          <Pressable
+            onPress={() => navigation.navigate("ReminderEdit", { plan: "recharge" })}
+            style={({ pressed }) => [styles.planChip, pressed && { opacity: 0.85 }]}
+            accessibilityRole="button"
+          >
+            <Feather name="smartphone" size={14} color={colors.primary} />
+            <Text style={styles.planChipText}>Add recharge</Text>
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <View style={styles.toggleGroup}>
+            <Pressable
+              onPress={() => setViewMode("list")}
+              style={[styles.toggleBtn, viewMode === "list" && styles.toggleBtnActive]}
+              accessibilityLabel="List view"
+            >
+              <Feather name="list" size={16} color={viewMode === "list" ? colors.onPrimary : colors.muted} />
+            </Pressable>
+            <Pressable
+              onPress={() => setViewMode("calendar")}
+              style={[styles.toggleBtn, viewMode === "calendar" && styles.toggleBtnActive]}
+              accessibilityLabel="Calendar view"
+            >
+              <Feather name="calendar" size={16} color={viewMode === "calendar" ? colors.onPrimary : colors.muted} />
+            </Pressable>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Recharges and subscriptions</Text>
-            <Text style={styles.sub}>Add once for anyone at home. Remind every 28 days, 3 months, or year.</Text>
-          </View>
-          <Feather name="plus" size={18} color={colors.primary} />
-        </Pressable>
+        </View>
 
-        {reminders.length === 0 ? (
+        {/* Calendar View */}
+        {viewMode === "calendar" && (
+          <CalendarView
+            reminders={reminders}
+            files={files}
+            onPressReminder={(id) => navigation.navigate("ReminderEdit", { id })}
+            onPressFile={(id) => navigation.navigate("FileDetails", { fileId: id })}
+          />
+        )}
+
+        {viewMode === "list" && reminders.length === 0 ? (
           <EmptyState
             title="No reminders yet"
             body="Bills, rent, insurance, and household recharges or subscriptions."
           />
         ) : null}
 
-        {upcoming.length ? (
+        {viewMode === "list" && upcoming.length ? (
           <View>
             <Text style={styles.sectionHeading}>UPCOMING</Text>
             <View style={styles.card}>
@@ -152,7 +177,7 @@ export default function RemindersView({ navigation }: Props) {
           </View>
         ) : null}
 
-        {finished.length ? (
+        {viewMode === "list" && finished.length ? (
           <View>
             <Text style={styles.sectionHeading}>ALL DONE</Text>
             <View style={styles.card}>
@@ -192,6 +217,43 @@ export default function RemindersView({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  viewToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  planChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primaryLine,
+  },
+  planChipText: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: colors.primary,
+  },
+  toggleGroup: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 20,
+    padding: 3,
+  },
+  toggleBtn: {
+    width: 36,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+  },
+  toggleBtnActive: {
+    backgroundColor: colors.primary,
+  },
   sectionHeading: {
     fontFamily: fonts.semibold,
     fontSize: 12,
@@ -199,17 +261,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 8,
     marginLeft: 4,
-  },
-  planCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: colors.primarySoft,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.primaryLine,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
   },
   card: {
     backgroundColor: colors.surface,
