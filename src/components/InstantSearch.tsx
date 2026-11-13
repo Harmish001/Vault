@@ -2,8 +2,9 @@
  * Instant Search: Global search overlay accessible from anywhere.
  * Shows files, notes, folders with inline copy for field values.
  */
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -41,6 +42,14 @@ export default function InstantSearch({
   const { files, folders, notes, fileUri } = useVault();
   const { copyValue } = useQuickCopy();
   const [query, setQuery] = useState("");
+  const inputRef = useRef<TextInput>(null);
+
+  // Focus input when modal opens
+  const handleShow = () => {
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
 
   const q = query.trim().toLowerCase();
 
@@ -76,8 +85,14 @@ export default function InstantSearch({
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={[styles.overlay, { paddingTop: insets.top }]}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      onShow={handleShow}
+    >
+      <View style={[styles.overlay, { paddingTop: insets.top + 40 }]}>
         <Pressable style={styles.backdrop} onPress={onClose} />
 
         <View style={styles.container}>
@@ -85,6 +100,7 @@ export default function InstantSearch({
           <View style={styles.searchBox}>
             <Feather name="search" size={20} color={colors.muted} />
             <TextInput
+              ref={inputRef}
               value={query}
               onChangeText={setQuery}
               placeholder="Search documents, numbers, notes..."
@@ -92,6 +108,8 @@ export default function InstantSearch({
               style={styles.searchInput}
               autoFocus
               returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
             />
             {query ? (
               <Pressable onPress={() => setQuery("")} hitSlop={10}>
@@ -284,9 +302,8 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   container: {
-    flex: 1,
-    margin: 12,
-    marginTop: 8,
+    maxHeight: "85%",
+    marginHorizontal: 12,
     backgroundColor: colors.bg,
     borderRadius: 20,
     overflow: "hidden",

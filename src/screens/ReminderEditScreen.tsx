@@ -402,7 +402,7 @@ export default function ReminderEditScreen({
       }
 
       ToastAndroid.show(`Reminder added for ${formatDate(parseISODate(dueOn).getTime())}`, ToastAndroid.SHORT);
-      navigation.navigate("Reminders");
+      navigation.navigate("Home", { tab: "reminders" });
     } catch {
       Alert.alert("Couldn't save the reminder", "Please try again.");
       setSaving(false);
@@ -480,7 +480,7 @@ export default function ReminderEditScreen({
       ToastAndroid.show(`Updated ${matched.title}`, ToastAndroid.SHORT);
       setDuplicateMatch(null);
       resetShareIntent();
-      navigation.navigate("Reminders");
+      navigation.navigate("Home", { tab: "reminders" });
     } catch {
       Alert.alert("Update failed", "Could not update the existing reminder.");
       setSaving(false);
