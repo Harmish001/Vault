@@ -345,16 +345,16 @@ export function parseBill(
   const offsets = CATEGORY_DEFAULTS[category].defaultOffsets;
 
   // Check text overrides for repeat
-  if (/\b(monthly|per\s*month|\/month|\/mo)\b/i.test(joined)) {
+  if (/\b28\s*-?\s*days?\b/i.test(joined)) {
+    repeatField = { value: "d28", confidence: "high", why: "text-28-days" };
+  } else if (/\b(quarterly|every\s*3\s*months|3\s*months)\b/i.test(joined)) {
+    repeatField = { value: "quarterly", confidence: "high", why: "text-quarterly" };
+  } else if (/\b(monthly|per\s*month|\/month|\/mo)\b/i.test(joined)) {
     repeatField = { value: "monthly", confidence: "high", why: "text-monthly" };
   } else if (/\b(annual|yearly|per\s*year|\/year|mode:\s*yearly|mode:\s*annual)\b/i.test(joined)) {
     repeatField = { value: "yearly", confidence: "high", why: "text-yearly" };
-  } else if (/\b(quarterly|half\s*yearly)\b/i.test(joined)) {
-    repeatField = {
-      value: "none",
-      confidence: "low",
-      why: "This looks quarterly. DocVault doesn't repeat quarterly yet, so it's set to once.",
-    };
+  } else if (/\bhalf\s*yearly\b/i.test(joined)) {
+    repeatField = { value: "none", confidence: "low", why: "half-yearly set to once" };
   } else if (ordinalRepeatMonthly) {
     repeatField = { value: "monthly", confidence: "low", why: "ordinal-day" };
   } else if (defRepeat !== "none") {

@@ -31,7 +31,8 @@ import { ConfidenceTag } from "../components/ConfidenceTag";
 import { SourceCard } from "../components/SourceCard";
 import { FolderPicker } from "../components/FolderPicker";
 import { parseBill, BillParseResult } from "../capture/parseBill";
-import { CATEGORY_DEFAULTS } from "../capture/billers";
+import { BILLERS, CATEGORY_DEFAULTS } from "../capture/billers";
+import { repeatLabel } from "../reminders-plan";
 import { findMatch } from "../capture/match";
 import { readPageText } from "../ocr/read";
 import { buildPdf, PdfPage } from "../scan/pdf";
@@ -72,9 +73,21 @@ const OFFSET_OPTIONS = [
 
 const REPEATS: { v: Repeat; label: string }[] = [
   { v: "none", label: "Once" },
+  { v: "d28", label: "28 days" },
   { v: "monthly", label: "Monthly" },
+  { v: "quarterly", label: "3 months" },
   { v: "yearly", label: "Yearly" },
 ];
+
+const PLAN_TITLES = ["Jio", "Airtel", "Vi", "BSNL", "Netflix", "Prime Video", "Hotstar", "Spotify", "YouTube Premium"];
+
+const REPEAT_HINT: Record<Repeat, string> = {
+  none: "One reminder on this date.",
+  d28: "Every 28 days from this date. Usual prepaid recharge.",
+  monthly: "Same day each month. Shorter months use the last day.",
+  quarterly: "Every 3 months from this date.",
+  yearly: "Same date every year.",
+};
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -101,6 +114,7 @@ export default function ReminderEditScreen({
   const { resetShareIntent } = useShareIntentContext();
   const insets = useSafeAreaInsets();
   const existing = id ? reminders.find((r) => r.id === id) : undefined;
+  const isPlan = !existing && route.params?.plan === "recharge";
 
   // Form State
   const [title, setTitle] = useState(existing?.title ?? "");
@@ -109,10 +123,13 @@ export default function ReminderEditScreen({
   const [note, setNote] = useState(existing?.note ?? "");
   const [dueOn, setDueOn] = useState(existing?.dueOn ?? "");
   const [time, setTime] = useState(existing?.time ?? "09:00");
-  const [repeat, setRepeat] = useState<Repeat>(existing?.repeat ?? "monthly");
+  const [repeat, setRepeat] = useState<Repeat>(existing?.repeat ?? (isPlan ? "d28" : "monthly"));
   const [offsets, setOffsets] = useState<number[]>(existing?.offsets ?? [1, 0]);
   const [reference, setReference] = useState(existing?.reference ?? "");
-  const [category, setCategory] = useState<ReminderCategory | undefined>(existing?.category);
+  const [who, setWho] = useState(existing?.who ?? "");
+  const [category, setCategory] = useState<ReminderCategory | undefined>(
+    existing?.category ?? (isPlan ? "telecom" : undefined)
+  );
   const [attachedFileId, setAttachedFileId] = useState<string | undefined>(existing?.fileId);
 
   // Capture / OCR State
@@ -121,7 +138,7 @@ export default function ReminderEditScreen({
   const [extractedText, setExtractedText] = useState(draft?.sourceText ?? "");
   const [parseResult, setParseResult] = useState<BillParseResult | undefined>(draft?.result);
   const [chosenAmountLabel, setChosenAmountLabel] = useState<string | undefined>();
-  const [showRefRow, setShowRefRow] = useState(!!existing?.reference);
+  const [showRefRow, setShowRefRow] = useState(!!existing?.reference || isPlan);
 
   // Confidence & Tag Tracking
   const [titleChecked, setTitleChecked] = useState(false);
@@ -140,7 +157,7 @@ export default function ReminderEditScreen({
   } | null>(null);
 
   // Prompts & Modals
-  const [prompt, setPrompt] = useState<null | "title" | "amount" | "note" | "reference">(null);
+  const [prompt, setPrompt] = useState<null | "title" | "amount" | "note" | "reference" | "who">(null);
   const [saving, setSaving] = useState(false);
   const ocrDoneRef = useRef(false);
 
@@ -357,6 +374,7 @@ export default function ReminderEditScreen({
         amountValue,
         note: note.trim() || undefined,
         reference: reference.trim() || undefined,
+        who: who.trim() || undefined,
         category,
         source: draft?.source ?? (existing?.source || "manual"),
         fileId: savedFileId,
@@ -518,6 +536,7 @@ export default function ReminderEditScreen({
     minute: "2-digit",
   });
 
+  const showWho = isPlan || !!who.trim() || category === "telecom" || category === "subscription";
   const keepFolderName = folders.find((f) => f.id === keepFolderId)?.name || "Bills";
   const attachedFile = attachedFileId ? files.find((f) => f.id === attachedFileId) : null;
 
@@ -526,7 +545,7 @@ export default function ReminderEditScreen({
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScreenHeader
-        title={existing ? "Edit reminder" : isCapture ? "New reminder from bill" : "New reminder"}
+        title={existing ? "Edit reminder" : isPlan ? "Recharge or plan" : isCapture ? "New reminder from bill" : "New reminder"}
         onBack={handleDiscard}
       />
 
@@ -684,13 +703,24 @@ export default function ReminderEditScreen({
           />
 
           {/* Time Row */}
-          <Row label="Time" value={timeLabel} onPress={pickTime} icon="clock" last={!showRefRow} />
+          <Row label="Time" value={timeLabel} onPress={pickTime} icon="clock" last={!showWho && !showRefRow} />
+
+          {showWho ? (
+            <Row
+              label="For"
+              value={who || "Who in the house?"}
+              empty={!who}
+              onPress={() => setPrompt("who")}
+              icon="user"
+              last={!showRefRow}
+            />
+          ) : null}
 
           {/* Reference Row (optional / labelled) */}
           {showRefRow ? (
             <Row
-              label="Reference"
-              value={reference ? maskValue(reference) : "Account or policy no."}
+              label={isPlan ? "Number" : "Reference"}
+              value={reference ? maskValue(reference) : isPlan ? "Mobile number" : "Account or policy no."}
               empty={!reference}
               onPress={() => setPrompt("reference")}
               icon="hash"
@@ -728,15 +758,7 @@ export default function ReminderEditScreen({
               </Pressable>
             ))}
           </View>
-          {repeat !== "none" ? (
-            <Text style={styles.hint}>
-              {repeat === "monthly"
-                ? "Repeats on the same day each month (the last day of shorter months)."
-                : "Repeats on the same date every year."}
-            </Text>
-          ) : (
-            <Text style={styles.hint}>Repeats? Tap Monthly or Yearly.</Text>
-          )}
+          <Text style={styles.hint}>{REPEAT_HINT[repeat]}</Text>
         </View>
 
         {/* Notify Section */}
@@ -836,10 +858,20 @@ export default function ReminderEditScreen({
         placeholder="e.g. Netflix, Electricity bill"
         initial={title}
         confirmLabel="Done"
-        suggestions={QUICK_TITLES}
+        suggestions={isPlan ? PLAN_TITLES : QUICK_TITLES}
         onCancel={() => setPrompt(null)}
         onSubmit={(val) => {
           setTitle(val);
+          const key = val.trim().toLowerCase();
+          const hit = BILLERS.find(
+            (b) => b.name.toLowerCase() === key || b.aliases.some((a) => a.trim().toLowerCase() === key)
+          );
+          if (hit) {
+            setCategory(hit.category);
+            if (isPlan && (repeat === "d28" || repeat === "monthly")) {
+              setRepeat(hit.category === "telecom" ? "d28" : hit.repeat === "yearly" ? "yearly" : "monthly");
+            }
+          }
           setPrompt(null);
         }}
       />
@@ -853,6 +885,20 @@ export default function ReminderEditScreen({
         onCancel={() => setPrompt(null)}
         onSubmit={(val) => {
           setAmount(val);
+          setPrompt(null);
+        }}
+      />
+
+      <PromptModal
+        visible={prompt === "who"}
+        title="Who is this for?"
+        placeholder="e.g. Mom, Dad, Rahul"
+        initial={who}
+        confirmLabel="Done"
+        suggestions={folders.filter((f) => f.parentId === null).map((f) => f.name)}
+        onCancel={() => setPrompt(null)}
+        onSubmit={(val) => {
+          setWho(val);
           setPrompt(null);
         }}
       />
@@ -893,7 +939,7 @@ export default function ReminderEditScreen({
           </Text>
           <Text style={styles.duplicateSubline}>
             {[
-              duplicateMatch?.reminder.repeat === "monthly" ? "Every month" : "Every year",
+              repeatLabel(duplicateMatch?.reminder.repeat ?? "none"),
               `next due ${formatDate(parseISODate(duplicateMatch?.reminder.dueOn || "").getTime())}`,
               duplicateMatch?.reminder.amount,
             ]

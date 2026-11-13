@@ -5,7 +5,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
-import { nextDue } from "../reminders-plan";
+import { nextDue, repeatLabel } from "../reminders-plan";
 import { colors, fonts, radius } from "../theme";
 import { Reminder } from "../types";
 import { formatDate, maskValue, parseISODate } from "../utils";
@@ -23,8 +23,6 @@ try {
 } catch {
   DocumentScanner = null;
 }
-
-const REPEAT_LABEL = { none: "One time", monthly: "Every month", yearly: "Every year" } as const;
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -74,10 +72,26 @@ export default function RemindersView({ navigation }: Props) {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 18 }}>
+        <Pressable
+          onPress={() => navigation.navigate("ReminderEdit", { plan: "recharge" })}
+          style={({ pressed }) => [styles.planCard, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Add a recharge or subscription"
+        >
+          <View style={styles.iconBox}>
+            <Feather name="smartphone" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>Recharges and subscriptions</Text>
+            <Text style={styles.sub}>Add once for anyone at home. Remind every 28 days, 3 months, or year.</Text>
+          </View>
+          <Feather name="plus" size={18} color={colors.primary} />
+        </Pressable>
+
         {reminders.length === 0 ? (
           <EmptyState
             title="No reminders yet"
-            body="Keep track of bills, rent, subscriptions, insurance renewals and other recurring dues."
+            body="Bills, rent, insurance, and household recharges or subscriptions."
           />
         ) : null}
 
@@ -108,7 +122,8 @@ export default function RemindersView({ navigation }: Props) {
                         {r.amount?.trim() ? <Text style={styles.amount}>{r.amount.trim()}</Text> : null}
                         <Text style={styles.sub}>
                           {[
-                            REPEAT_LABEL[r.repeat],
+                            r.who?.trim(),
+                            repeatLabel(r.repeat),
                             r.reference?.trim() ? maskValue(r.reference.trim()) : null,
                             r.note?.trim(),
                           ]
@@ -184,6 +199,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 8,
     marginLeft: 4,
+  },
+  planCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.primaryLine,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   card: {
     backgroundColor: colors.surface,

@@ -22,7 +22,7 @@ export type RootStackParamList = {
   FileDetails: { fileId: string };
   FileViewer: { fileId: string };
   Reminders: undefined;
-  ReminderEdit: { id?: string; draft?: CaptureDraft } | undefined;
+  ReminderEdit: { id?: string; draft?: CaptureDraft; plan?: "recharge" } | undefined;
   ShareChooser: undefined;
   Favorites: undefined;
   MyCard: undefined;

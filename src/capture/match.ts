@@ -45,7 +45,7 @@ export function findMatch(
     if (normTitle) {
       for (const r of existing) {
         if (
-          (r.repeat === "monthly" || r.repeat === "yearly") &&
+          r.repeat !== "none" &&
           normalizeTitle(r.title) === normTitle
         ) {
           return { reminder: r, reason: "title" };

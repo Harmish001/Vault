@@ -1,5 +1,6 @@
 // Run with: npm test   (date maths and reminder planning, no phone needed)
-import { planReminders } from "../src/reminders-plan";
+import { occurrenceDates, planReminders } from "../src/reminders-plan";
+import type { Reminder } from "../src/types";
 import { addYears, daysUntil, expiryInfo, fileSearchText, maskValue, parseISODate, toISODate } from "../src/utils";
 
 const assert = (ok: boolean, msg: string) => {
@@ -41,6 +42,22 @@ const first = plan.find((r) => r.fileId === "a" && r.offset === 60)!;
 assert(toISODate(first.fireAt) === "2026-10-26" && first.fireAt.getHours() === 9, "60 days before 25 Dec 2026 is 26 Oct at 9 AM");
 assert(plan.every((r, i) => i === 0 || plan[i - 1].fireAt <= r.fireAt), "sorted by time");
 assert(planReminders(entries, [60, 30, 7, 0], now, 3).length === 3, "cap respected");
+
+const cycle = (repeat: Reminder["repeat"], dueOn: string): Reminder => ({
+  id: "r",
+  title: "Jio",
+  dueOn,
+  time: "09:00",
+  repeat,
+  offsets: [0],
+  createdAt: 0,
+});
+const d28 = occurrenceDates(cycle("d28", "2026-10-01"), now, 3);
+assert(d28[0] === "2026-10-29" && d28[1] === "2026-11-26" && d28[2] === "2026-12-24", "28-day recharge steps from 1 Oct");
+assert(occurrenceDates(cycle("d28", "2026-10-22"), now, 1)[0] === "2026-10-22", "28-day due today still counts");
+assert(occurrenceDates(cycle("quarterly", "2026-01-15"), now, 1)[0] === "2027-01-15", "quarterly skips past 15 Oct");
+assert(occurrenceDates(cycle("quarterly", "2026-11-01"), now, 2).join() === "2026-11-01,2027-02-01", "3-month cycle keeps the next two");
+assert(occurrenceDates(cycle("yearly", "2026-12-01"), now, 1)[0] === "2026-12-01", "yearly still next same date");
 
 const txt = fileSearchText({ id: "x", folderId: "f", name: "Dad Passport", mime: "", size: 0, storedAs: "", addedAt: 0, tags: ["Travel"], notes: "Locker 2", fields: [{ id: "1", label: "Document number", value: "P1234567" }] });
 assert(txt.includes("travel") && txt.includes("locker") && txt.includes("p1234567") && txt.includes("document number"), "search covers tags, notes, details");

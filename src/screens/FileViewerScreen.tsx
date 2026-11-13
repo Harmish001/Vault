@@ -410,13 +410,13 @@ function PlainTextViewer({ content }: { content: string }) {
 const PDF_HTML = `<!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{background:#1a1a1a;width:100%;min-height:100%}
+html,body{background:#1a1a1a;width:100%;min-height:100%;overflow-x:hidden}
 #st{color:#bbb;padding:48px 20px;font-family:sans-serif;font-size:14px;text-align:center}
 .pw{background:#fff;margin:6px 0;box-shadow:0 2px 6px rgba(0,0,0,0.4)}
-canvas{display:block;width:100%;height:auto}
+canvas{display:block}
 </style>
 </head>
 <body>
@@ -465,20 +465,24 @@ if(typeof pdfjsLib!=='undefined'){
       pdfjsLib.getDocument({data:buf}).promise.then(function(pdf){
         st.style.display='none';
         pm({type:'loaded',pages:pdf.numPages});
-        var W=window.innerWidth;
+        var dpr=Math.min(window.devicePixelRatio||1,3);
         function rp(n){
           if(n>pdf.numPages)return;
           pdf.getPage(n).then(function(page){
             var nat=page.getViewport({scale:1});
-            var vp=page.getViewport({scale:W/nat.width});
+            var cssW=document.documentElement.clientWidth||window.innerWidth;
+            var vp=page.getViewport({scale:cssW/nat.width});
             var wrap=document.createElement('div');
             wrap.className='pw';
             var c=document.createElement('canvas');
-            c.width=vp.width;
-            c.height=vp.height;
+            c.width=Math.floor(vp.width*dpr);
+            c.height=Math.floor(vp.height*dpr);
+            c.style.width=Math.floor(vp.width)+'px';
+            c.style.height=Math.floor(vp.height)+'px';
             wrap.appendChild(c);
             document.getElementById('pg').appendChild(wrap);
-            page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise.then(function(){
+            var ctx=c.getContext('2d',{alpha:false});
+            page.render({canvasContext:ctx,viewport:vp,transform:dpr===1?null:[dpr,0,0,dpr,0,0]}).promise.then(function(){
               rp(n+1);
             });
           });
@@ -561,6 +565,7 @@ function PdfViewer({ uri, onFallback }: { uri: string; onFallback: () => void })
         javaScriptEnabled
         domStorageEnabled
         allowFileAccess
+        scalesPageToFit={false}
         style={{ flex: 1 }}
       />
 

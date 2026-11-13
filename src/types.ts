@@ -45,7 +45,7 @@ export type CaptureSource =
   | "scan"
   | "clipboard";
 
-export type Repeat = "none" | "monthly" | "yearly";
+export type Repeat = "none" | "d28" | "monthly" | "quarterly" | "yearly";
 
 export type Reminder = {
   id: string;
@@ -68,6 +68,8 @@ export type Reminder = {
   fileId?: string;
   /** consumer number, policy number, phone number (for matching / display) */
   reference?: string;
+  /** household member this recharge or subscription is for */
+  who?: string;
   category?: ReminderCategory;
   /** for support/debugging only; not shown in UI */
   source?: CaptureSource;
