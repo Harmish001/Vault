@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, ToastAndroid, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import * as Clipboard from "expo-clipboard";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -8,6 +8,7 @@ import { Folder, VaultFile } from "../types";
 import { dueInfo, expiryInfo, extOf, formatBytes, formatDate, kindOf } from "../utils";
 import { resolveDecryptedThumb } from "../security/fileStorage";
 import { getCachedKey } from "../security/keystore";
+import { useQuickCopy } from "../hooks/useQuickCopy";
 
 export function FavStar({ on, onPress, label, size = 20 }: { on: boolean; onPress: () => void; label: string; size?: number }) {
   return (
@@ -98,13 +99,14 @@ export function FileRow(props: {
   const f = props.file;
   const selecting = props.selected !== undefined;
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { copyValue: trackCopy } = useQuickCopy();
   const hasFields = Boolean(f.fields && f.fields.length > 0);
   const primaryField = hasFields ? f.fields![0] : null;
   const isPrimaryCopied =
     copiedId === "primary" || (primaryField !== null && copiedId === primaryField.id);
 
-  async function copyValue(id: string, text: string) {
-    await Clipboard.setStringAsync(text);
+  async function copyValue(id: string, label: string, text: string) {
+    await trackCopy(label, text, f.id, "file");
     setCopiedId(id);
     setTimeout(() => {
       setCopiedId((curr) => (curr === id ? null : curr));
@@ -132,7 +134,7 @@ export function FileRow(props: {
             <Pressable
               onPress={(e) => {
                 e?.stopPropagation?.();
-                copyValue("primary", primaryField.value);
+                copyValue("primary", primaryField.label, primaryField.value);
               }}
               hitSlop={8}
               style={({ pressed }) => [
@@ -172,7 +174,7 @@ export function FileRow(props: {
                   key={field.id}
                   onPress={(e) => {
                     e?.stopPropagation?.();
-                    copyValue(field.id, field.value);
+                    copyValue(field.id, field.label, field.value);
                   }}
                   hitSlop={6}
                   style={({ pressed }) => [

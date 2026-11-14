@@ -68,3 +68,14 @@ export function encryptText(key: Uint8Array, text: string): string {
     : bytes;
   return encryptBlob(key, enc);
 }
+
+/**
+ * Decrypt URL-safe base64 ciphertext back to bytes.
+ * Throws if authentication fails (wrong key).
+ */
+export function decryptBlob(key: Uint8Array, encrypted: string): Uint8Array {
+  const packed = fromUrlBase64(encrypted);
+  const nonce = packed.slice(0, 12);
+  const ct = packed.slice(12);
+  return gcm(key, nonce, AAD_SHARE).decrypt(ct);
+}

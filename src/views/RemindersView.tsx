@@ -1,17 +1,18 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
-import { nextDue } from "../reminders-plan";
+import { nextDue, repeatLabel } from "../reminders-plan";
 import { colors, fonts, radius } from "../theme";
 import { Reminder } from "../types";
 import { formatDate, maskValue, parseISODate } from "../utils";
 import { DueBadge } from "../components/Rows";
 import { EmptyState, FabBar, Pill } from "../components/ui";
 import { CATEGORY_DEFAULTS } from "../capture/billers";
+import CalendarView from "../components/CalendarView";
 
 let DocumentScanner: {
   scanDocument: (options?: { maxNumDocuments?: number }) => Promise<{ status?: string; scannedImages?: string[] }>;
@@ -24,15 +25,14 @@ try {
   DocumentScanner = null;
 }
 
-const REPEAT_LABEL = { none: "One time", monthly: "Every month", yearly: "Every year" } as const;
-
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
 export default function RemindersView({ navigation }: Props) {
-  const { reminders, updateReminder } = useVault();
+  const { reminders, files, updateReminder } = useVault();
   const { runExternal } = useLock();
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
 
   const { upcoming, finished } = useMemo(() => {
     const now = new Date();
@@ -74,14 +74,53 @@ export default function RemindersView({ navigation }: Props) {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 18 }}>
-        {reminders.length === 0 ? (
+        {/* View toggle */}
+        <View style={styles.viewToggle}>
+          <Pressable
+            onPress={() => navigation.navigate("ReminderEdit", { plan: "recharge" })}
+            style={({ pressed }) => [styles.planChip, pressed && { opacity: 0.85 }]}
+            accessibilityRole="button"
+          >
+            <Feather name="smartphone" size={14} color={colors.primary} />
+            <Text style={styles.planChipText}>Add recharge</Text>
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <View style={styles.toggleGroup}>
+            <Pressable
+              onPress={() => setViewMode("list")}
+              style={[styles.toggleBtn, viewMode === "list" && styles.toggleBtnActive]}
+              accessibilityLabel="List view"
+            >
+              <Feather name="list" size={16} color={viewMode === "list" ? colors.onPrimary : colors.muted} />
+            </Pressable>
+            <Pressable
+              onPress={() => setViewMode("calendar")}
+              style={[styles.toggleBtn, viewMode === "calendar" && styles.toggleBtnActive]}
+              accessibilityLabel="Calendar view"
+            >
+              <Feather name="calendar" size={16} color={viewMode === "calendar" ? colors.onPrimary : colors.muted} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Calendar View */}
+        {viewMode === "calendar" && (
+          <CalendarView
+            reminders={reminders}
+            files={files}
+            onPressReminder={(id) => navigation.navigate("ReminderEdit", { id })}
+            onPressFile={(id) => navigation.navigate("FileDetails", { fileId: id })}
+          />
+        )}
+
+        {viewMode === "list" && reminders.length === 0 ? (
           <EmptyState
             title="No reminders yet"
-            body="Keep track of bills, rent, subscriptions, insurance renewals and other recurring dues."
+            body="Bills, rent, insurance, and household recharges or subscriptions."
           />
         ) : null}
 
-        {upcoming.length ? (
+        {viewMode === "list" && upcoming.length ? (
           <View>
             <Text style={styles.sectionHeading}>UPCOMING</Text>
             <View style={styles.card}>
@@ -108,7 +147,8 @@ export default function RemindersView({ navigation }: Props) {
                         {r.amount?.trim() ? <Text style={styles.amount}>{r.amount.trim()}</Text> : null}
                         <Text style={styles.sub}>
                           {[
-                            REPEAT_LABEL[r.repeat],
+                            r.who?.trim(),
+                            repeatLabel(r.repeat),
                             r.reference?.trim() ? maskValue(r.reference.trim()) : null,
                             r.note?.trim(),
                           ]
@@ -137,7 +177,7 @@ export default function RemindersView({ navigation }: Props) {
           </View>
         ) : null}
 
-        {finished.length ? (
+        {viewMode === "list" && finished.length ? (
           <View>
             <Text style={styles.sectionHeading}>ALL DONE</Text>
             <View style={styles.card}>
@@ -177,6 +217,43 @@ export default function RemindersView({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  viewToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  planChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primaryLine,
+  },
+  planChipText: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: colors.primary,
+  },
+  toggleGroup: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 20,
+    padding: 3,
+  },
+  toggleBtn: {
+    width: 36,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+  },
+  toggleBtnActive: {
+    backgroundColor: colors.primary,
+  },
   sectionHeading: {
     fontFamily: fonts.semibold,
     fontSize: 12,

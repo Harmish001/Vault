@@ -26,6 +26,11 @@ import {
 } from "../sharing/sharing";
 import { compressDocument } from "../compress/compressor";
 import { base64ToBytes } from "../scan/base64";
+import {
+  createLocalSharePackage,
+  shareLocalPackage,
+  LocalShareItem,
+} from "../sharing/localShare";
 
 const TTL_OPTIONS = [
   { label: "5 min", sec: 300 },
@@ -128,6 +133,57 @@ export default function SmartShareScreen({
     }
   }
 
+  async function handleLocalPCShare() {
+    const chosenFiles = files.filter((f) => selectedFiles.has(f.id));
+    const chosenNotes = publicNotes.filter((n) => selectedNotes.has(n.id));
+    if (chosenFiles.length === 0 && chosenNotes.length === 0) {
+      Alert.alert("Nothing selected", "Pick at least one file or note to share.");
+      return;
+    }
+    setLoading(true);
+    try {
+      // Build items with decrypted bytes
+      const items: LocalShareItem[] = [];
+      for (const f of chosenFiles) {
+        setProgressMsg(`Reading ${f.name}...`);
+        const uri = await getDecryptedUri(f);
+        const b64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        items.push({ kind: "file", file: f, bytes: base64ToBytes(b64) });
+      }
+      for (const n of chosenNotes) {
+        items.push({ kind: "note", note: n });
+      }
+
+      const result = await createLocalSharePackage(items, setProgressMsg);
+
+      // Show code/words and share
+      Alert.alert(
+        "Share Package Ready",
+        `Files: ${result.itemCount}\n\nCode: ${result.code.slice(0, 3)} ${result.code.slice(3)}\nWords: ${result.words.join(" ")}\n\nSave this code and words! The recipient needs them to open the files.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Share Package",
+            onPress: async () => {
+              try {
+                await shareLocalPackage(result.packagePath);
+              } catch {
+                Alert.alert("Share failed", "Could not open share sheet.");
+              }
+            },
+          },
+        ]
+      );
+    } catch (e) {
+      Alert.alert("Failed", e instanceof Error ? e.message : "Could not create package.");
+    } finally {
+      setLoading(false);
+      setProgressMsg("");
+    }
+  }
+
   async function handleSmartCompressAndShare() {
     if (totalSelected === 0) return;
     setLoading(true);
@@ -215,8 +271,9 @@ export default function SmartShareScreen({
         `Selected files total ${formatBytes(selectedTotalBytes)}, exceeding the 4 MB web relay limit.\n\nChoose an option:`,
         [
           { text: "Cancel", style: "cancel" },
-          { text: "📲 Direct Share (Quick Share)", onPress: handleDirectShare },
-          { text: "⚡ Smart Compress & Share QR", onPress: handleSmartCompressAndShare },
+          { text: "💻 Direct to PC (no limit)", onPress: handleLocalPCShare },
+          { text: "📲 Quick Share", onPress: handleDirectShare },
+          { text: "⚡ Compress & QR", onPress: handleSmartCompressAndShare },
         ]
       );
       return;

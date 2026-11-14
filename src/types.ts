@@ -45,7 +45,7 @@ export type CaptureSource =
   | "scan"
   | "clipboard";
 
-export type Repeat = "none" | "monthly" | "yearly";
+export type Repeat = "none" | "d28" | "monthly" | "quarterly" | "yearly";
 
 export type Reminder = {
   id: string;
@@ -68,6 +68,8 @@ export type Reminder = {
   fileId?: string;
   /** consumer number, policy number, phone number (for matching / display) */
   reference?: string;
+  /** household member this recharge or subscription is for */
+  who?: string;
   category?: ReminderCategory;
   /** for support/debugging only; not shown in UI */
   source?: CaptureSource;
@@ -180,10 +182,37 @@ export type Settings = {
   documentsProviderEnabled?: boolean;
   /** whether the initial family folders setup popup has been completed or dismissed */
   familySetupDone?: boolean;
+  /** last 10 copied values for quick copy feature */
+  recentCopies?: RecentCopy[];
+  /** saved share bundles */
+  shareBundles?: ShareBundle[];
 };
 
 export type LockCardMode = "qr" | "details";
 export type LockCardSize = "small" | "medium" | "large";
+
+/** Recently copied values for quick access */
+export type RecentCopy = {
+  /** What was copied: "Aadhaar Number", "PAN", etc */
+  label: string;
+  /** The value (masked for display) */
+  value: string;
+  /** Source file or note id */
+  sourceId: string;
+  /** Source type */
+  sourceKind: "file" | "note" | "reminder";
+  /** When copied */
+  copiedAt: number;
+};
+
+/** Pre-saved document bundles for quick sharing */
+export type ShareBundle = {
+  id: string;
+  name: string; // "KYC Docs", "Rental Docs"
+  description?: string;
+  fileIds: string[];
+  createdAt: number;
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   lockEnabled: true,

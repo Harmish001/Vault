@@ -19,6 +19,7 @@ import { formatLastBackupTime } from "../auto-backup-plan";
 import { getAutoBackupPath, getAutoBackupStatus } from "../autoBackup";
 import * as Clipboard from "expo-clipboard";
 import { FamilySetupModal } from "../components/FamilySetupModal";
+import { pickFolderPackage, importFolder } from "../sharing/familyShare";
 
 const OFFSET_OPTIONS = [
   { label: "90 days", d: 90 },
@@ -37,7 +38,8 @@ const LOCK_OPTIONS = [
 
 export default function SettingsScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Settings">) {
   const { settings, update } = useSettings();
-  const { files, folders, totalBytes, exportBackup, restoreBackup, performAutoBackup } = useVault();
+  const vault = useVault();
+  const { files, folders, totalBytes, exportBackup, restoreBackup, performAutoBackup } = vault;
   const insets = useSafeAreaInsets();
   const { runExternal } = useLock();
   const [exportPrompt, setExportPrompt] = useState(false);
@@ -47,6 +49,9 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
   const [resolvedBackupPath, setResolvedBackupPath] = useState<string>("");
   const [backupFileSize, setBackupFileSize] = useState<number | null>(null);
   const [familySetupOpen, setFamilySetupOpen] = useState(false);
+  const [importPrompt, setImportPrompt] = useState<string | null>(null); // picked .dvault file awaiting code/words
+  const [importCode, setImportCode] = useState("");
+  const [importWords, setImportWords] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -188,6 +193,45 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
         },
       ]
     );
+  }
+
+  async function startFolderImport() {
+    const uri = await pickFolderPackage();
+    if (uri) {
+      setImportPrompt(uri);
+    }
+  }
+
+  async function doFolderImport() {
+    if (!importPrompt) return;
+    setBusy("restore");
+    try {
+      const result = await importFolder(
+        importPrompt,
+        importCode,
+        importWords
+      );
+
+      // Create or find the folder
+      const folder = await vault.ensureFolder(result.folderName, result.folderColor);
+
+      // Add files to the folder
+      if (result.files.length > 0) {
+        await vault.addFiles(folder.id, result.files);
+      }
+
+      setImportPrompt(null);
+      setImportCode("");
+      setImportWords("");
+      Alert.alert(
+        "Folder Imported",
+        `"${result.folderName}" with ${result.files.length} files has been added to your vault.`
+      );
+    } catch (e) {
+      Alert.alert("Import failed", e instanceof Error ? e.message : "Could not import folder.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
@@ -437,6 +481,19 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
               style={{ marginTop: 12 }}
             />
           </View>
+          <View style={[styles.block, { borderTopWidth: 1, borderTopColor: colors.line }]}>
+            <Text style={styles.rowTitle}>Family Sharing</Text>
+            <Text style={styles.body}>
+              Import a folder shared from another family member's phone. You'll need the code and words they gave you.
+            </Text>
+            <Button
+              label="Import shared folder"
+              kind="secondary"
+              loading={busy === "restore"}
+              onPress={startFolderImport}
+              style={{ marginTop: 12 }}
+            />
+          </View>
         </Section>
 
         <Section title="Storage">
@@ -477,6 +534,163 @@ export default function SettingsScreen({ navigation }: NativeStackScreenProps<Ro
         visible={familySetupOpen}
         onClose={() => setFamilySetupOpen(false)}
       />
+      <ImportFolderModal
+        visible={importPrompt !== null}
+        code={importCode}
+        words={importWords}
+        onChangeCode={setImportCode}
+        onChangeWords={setImportWords}
+        onCancel={() => {
+          setImportPrompt(null);
+          setImportCode("");
+          setImportWords("");
+        }}
+        onSubmit={doFolderImport}
+        loading={busy === "restore"}
+      />
+    </View>
+  );
+}
+
+function ImportFolderModal(props: {
+  visible: boolean;
+  code: string;
+  words: string;
+  onChangeCode: (v: string) => void;
+  onChangeWords: (v: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+  loading?: boolean;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={[
+        {
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: colors.backdrop,
+          top: 0,
+          justifyContent: "flex-end",
+        },
+        !props.visible && { display: "none" },
+      ]}
+    >
+      <Pressable style={{ flex: 1 }} onPress={props.onCancel} />
+      <View
+        style={{
+          backgroundColor: colors.surface,
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          padding: 20,
+          paddingBottom: insets.bottom + 20,
+        }}
+      >
+        <Text style={{ fontFamily: fonts.heading, fontSize: 19, color: colors.ink, marginBottom: 16 }}>
+          Import Shared Folder
+        </Text>
+        <Text style={{ fontFamily: fonts.body, fontSize: 14, color: colors.muted, marginBottom: 16 }}>
+          Enter the code and words from the person who shared the folder.
+        </Text>
+        <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.ink, marginBottom: 6 }}>
+          6-digit code
+        </Text>
+        <View
+          style={{
+            flexDirection: "row",
+            borderWidth: 1.5,
+            borderColor: colors.line,
+            borderRadius: radius.md,
+            backgroundColor: colors.bg,
+            marginBottom: 16,
+          }}
+        >
+          <View style={{ flex: 1, padding: 12 }}>
+            <Pressable>
+              <Text
+                style={{
+                  fontFamily: fonts.body,
+                  fontSize: 17,
+                  color: props.code ? colors.ink : colors.muted,
+                }}
+              >
+                {props.code || "123 456"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+        <View
+          style={{
+            borderWidth: 1.5,
+            borderColor: colors.line,
+            borderRadius: radius.md,
+            backgroundColor: colors.bg,
+            padding: 12,
+            marginBottom: 16,
+          }}
+        >
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.ink, marginBottom: 6 }}>
+            Code
+          </Text>
+          {/* Using basic TextInput approach */}
+          <View style={{ flexDirection: "row" }}>
+            {React.createElement(require("react-native").TextInput, {
+              value: props.code,
+              onChangeText: props.onChangeCode,
+              placeholder: "123456",
+              placeholderTextColor: colors.muted,
+              keyboardType: "number-pad",
+              maxLength: 6,
+              style: {
+                flex: 1,
+                fontFamily: fonts.body,
+                fontSize: 17,
+                color: colors.ink,
+                padding: 0,
+              },
+            })}
+          </View>
+        </View>
+        <View
+          style={{
+            borderWidth: 1.5,
+            borderColor: colors.line,
+            borderRadius: radius.md,
+            backgroundColor: colors.bg,
+            padding: 12,
+            marginBottom: 20,
+          }}
+        >
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: colors.ink, marginBottom: 6 }}>
+            4 words
+          </Text>
+          {React.createElement(require("react-native").TextInput, {
+            value: props.words,
+            onChangeText: props.onChangeWords,
+            placeholder: "apple banana cherry date",
+            placeholderTextColor: colors.muted,
+            autoCapitalize: "none",
+            style: {
+              fontFamily: fonts.body,
+              fontSize: 17,
+              color: colors.ink,
+              padding: 0,
+            },
+          })}
+        </View>
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <Button label="Cancel" kind="secondary" onPress={props.onCancel} style={{ flex: 1 }} />
+          <Button
+            label="Import"
+            onPress={props.onSubmit}
+            loading={props.loading}
+            disabled={props.code.length < 6 || props.words.trim().split(/\s+/).length < 4}
+            style={{ flex: 1 }}
+          />
+        </View>
+      </View>
     </View>
   );
 }

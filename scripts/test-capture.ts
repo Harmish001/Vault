@@ -156,8 +156,10 @@ console.log("ok - fixture 12 passed");
 
 // Fixture 13: Quarterly premium
 const f13 = parseBill("Quarterly premium ₹6,150 due 15/12/2026", now);
-assert.equal(f13.repeat?.value, "none", "f13 repeat none");
+assert.equal(f13.repeat?.value, "quarterly", "f13 repeat quarterly");
 assert.ok(f13.repeat?.why.includes("quarterly"), "f13 quarterly hint");
+const f13b = parseBill("Jio recharge ₹299 validity 28 days", now);
+assert.equal(f13b.repeat?.value, "d28", "28-day recharge repeat");
 assert.equal(f13.amount?.value.value, 6150, "f13 amount");
 console.log("ok - fixture 13 passed");
 

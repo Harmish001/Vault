@@ -13,6 +13,7 @@ import { FieldModal, useExpiry } from "./QuickDetails";
 import { ActionMenu, PromptModal } from "./ui";
 import { CompressModal } from "./CompressModal";
 import { useOpenFile } from "../hooks/useOpenFile";
+import { exportFolder, shareFolderPackage } from "../sharing/familyShare";
 
 /** Menu + rename + move + delete for one file. Render `element` once in the screen. */
 export function useFileActions() {
@@ -163,6 +164,44 @@ export function useFolderActions(onDeleted?: () => void) {
   const [target, setTarget] = useState<Folder | null>(null);
   const [menu, setMenu] = useState(false);
   const [edit, setEdit] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExportFolder() {
+    if (!target) return;
+    setExporting(true);
+    setMenu(false);
+    try {
+      const result = await exportFolder(
+        target,
+        vault.files,
+        vault.getDecryptedUri,
+        (msg, _pct) => {
+          // Could show progress, but keeping it simple
+        }
+      );
+      Alert.alert(
+        "Folder Exported",
+        `${result.folderName} with ${result.fileCount} files.\n\nCode: ${result.code.slice(0, 3)} ${result.code.slice(3)}\nWords: ${result.words.join(" ")}\n\nSave this code and words! The other phone needs them to import.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Share",
+            onPress: async () => {
+              try {
+                await shareFolderPackage(result.packagePath);
+              } catch {
+                Alert.alert("Share failed", "Could not open share sheet.");
+              }
+            },
+          },
+        ]
+      );
+    } catch (e) {
+      Alert.alert("Export failed", e instanceof Error ? e.message : "Could not export folder.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const element = (
     <>
@@ -179,6 +218,11 @@ export function useFolderActions(onDeleted?: () => void) {
                   onPress: () => vault.toggleFavorite("folder", target.id),
                 },
                 { label: "Rename or change color", icon: "edit-2", onPress: () => setEdit(true) },
+                {
+                  label: "Share folder to family",
+                  icon: "users",
+                  onPress: handleExportFolder,
+                },
                 ...(canPinFolders()
                   ? [
                       {

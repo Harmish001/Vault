@@ -48,6 +48,16 @@ export function planReminders(
 // ---------------------------------------------------------------------------------------
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+export function repeatLabel(repeat: Reminder["repeat"]): string {
+  if (repeat === "d28") return "Every 28 days";
+  if (repeat === "monthly") return "Every month";
+  if (repeat === "quarterly") return "Every 3 months";
+  if (repeat === "yearly") return "Every year";
+  return "One time";
+}
+
 function monthlyDate(due: Date, i: number): Date {
   const t = due.getMonth() + i;
   const y = due.getFullYear() + Math.floor(t / 12);
@@ -66,15 +76,21 @@ export function occurrenceDates(r: Reminder, now: Date, count: number): string[]
 
   if (r.repeat === "none") return ok(due) ? [toISODate(due)] : [];
 
+  const step = r.repeat === "quarterly" ? 3 : 1;
   let i = 0; // skip straight to the cycle just before today
-  if (r.repeat === "monthly") {
-    i = Math.max(0, (today.getFullYear() - due.getFullYear()) * 12 + today.getMonth() - due.getMonth() - 1);
+  if (r.repeat === "monthly" || r.repeat === "quarterly") {
+    const months = (today.getFullYear() - due.getFullYear()) * 12 + today.getMonth() - due.getMonth();
+    i = Math.max(0, Math.floor(months / step) - 1);
+  } else if (r.repeat === "d28") {
+    const days = Math.floor((today.getTime() - startOfDay(due).getTime()) / 86400000);
+    i = Math.max(0, Math.floor(days / 28) - 1);
   } else {
     i = Math.max(0, today.getFullYear() - due.getFullYear() - 1);
   }
   const out: string[] = [];
   for (let guard = 0; out.length < count && guard < 600; i++, guard++) {
-    const d = r.repeat === "monthly" ? monthlyDate(due, i) : addYears(due, i);
+    const d =
+      r.repeat === "d28" ? addDays(due, i * 28) : r.repeat === "yearly" ? addYears(due, i) : monthlyDate(due, i * step);
     if (ok(d)) out.push(toISODate(d));
   }
   return out;
@@ -108,7 +124,7 @@ function atTime(day: Date, hhmm: string, minusDays: number): Date {
 export function planCustomReminders(reminders: Reminder[], now: Date = new Date()): PlannedCustom[] {
   const out: PlannedCustom[] = [];
   for (const r of reminders) {
-    const count = r.repeat === "monthly" ? 12 : r.repeat === "yearly" ? 3 : 1;
+    const count = r.repeat === "monthly" || r.repeat === "d28" ? 13 : r.repeat === "quarterly" ? 4 : r.repeat === "yearly" ? 3 : 1;
     const offsets = Array.from(new Set(r.offsets?.length ? r.offsets : [0]));
     for (const occ of occurrenceDates(r, now, count)) {
       for (const offset of offsets) {

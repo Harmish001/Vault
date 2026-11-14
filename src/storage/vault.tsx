@@ -454,6 +454,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           if (!n.doneThrough) delete n.doneThrough;
           if (!n.snoozeUntil) delete n.snoozeUntil;
           if (!n.reference?.trim()) delete n.reference;
+          if (!n.who?.trim()) delete n.who;
           if (!n.fileId) delete n.fileId;
           if (!n.category) delete n.category;
           if (n.amountValue == null || isNaN(n.amountValue)) delete n.amountValue;

@@ -11,6 +11,30 @@ const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Se
 const monthYear = (iso: string) => `${MONTH_NAMES[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 const titleCase = (s: string) => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
+/** Extract document identifier (last 4 digits or key portion) */
+const ID_PATTERNS: Record<string, RegExp> = {
+  aadhaar: /\b(\d{4})\s*(\d{4})\s*(\d{4})\b/, // 3 groups of 4
+  pan: /\b([A-Z]{5}\d{4}[A-Z])\b/,
+  vehicle: /\b([A-Z]{2}\d{2}[A-Z]{1,2}\d{4})\b/,
+  passport: /\b([A-Z]\d{7})\b/,
+  policy: /(?:policy\s*(?:no|number))[.:\s]*(\d+)/i,
+  account: /(?:a\/c\s*no|account\s*(?:no|number))[.:\s]*(\d+)/i,
+};
+
+function extractDocId(text: string, docType: string): string | undefined {
+  const pattern = ID_PATTERNS[docType];
+  if (!pattern) return undefined;
+  const match = text.match(pattern);
+  if (!match) return undefined;
+  
+  if (docType === "aadhaar" && match[3]) {
+    return match[3]; // Last 4 digits
+  }
+  const id = match[1] || match[0];
+  // For long IDs, use last 4 characters
+  return id.length > 6 ? id.slice(-4) : id;
+}
+
 // Folder names that describe a kind of document rather than a family member.
 const GENERIC_FOLDER =
   /^(documents?|docs|files|ids?|id cards?|identity|bills?|insurance|policies|scans?|recovered files|misc|others?|important|property|cars?|vehicles?|home|house|finance|bank(ing)?|tax(es)?|medical|health|work|office|education|certificates?|receipts?|warranty|warranties|travel)$/i;
@@ -95,7 +119,9 @@ export function suggestName({ text, det, bill, person, now = new Date() }: NameI
 
   if (/INSURANCE|ASSURANCE|POLICY SCHEDULE|CERTIFICATE OF INSURANCE/.test(up)) {
     const kind = INSURANCE.find(([re]) => re.test(up))?.[1] ?? "Insurance Policy";
-    return join(kind, year);
+    // Insurance policies use year qualifier; policy number only if no year found
+    const qualifier = year || extractDocId(text, "policy");
+    return join(kind, qualifier);
   }
 
   if (bill?.isBill && bill.title?.value.trim()) {
@@ -105,22 +131,36 @@ export function suggestName({ text, det, bill, person, now = new Date() }: NameI
   }
 
   if (/\b(AADHAAR|UIDAI|UNIQUE IDENTIFICATION)\b|आधार/.test(up)) {
-    return join("Aadhaar", person);
+    // Use person if available; fall back to last 4 digits of Aadhaar number
+    const qualifier = person || extractDocId(text, "aadhaar");
+    return join("Aadhaar", qualifier);
   }
   if (/\b(INCOME TAX DEPARTMENT|PERMANENT ACCOUNT NUMBER|PAN CARD)\b/.test(up)) {
+    // PAN: use person as qualifier; PAN number itself is the whole document
     return join("PAN card", person);
   }
   if (/\b(DRIVING LICEN[CS]E|MOTOR VEHICLES DEPARTMENT)\b/.test(up)) {
-    return join("Driving licence", person);
+    return join("Driving Licence", person);
   }
   if (/\b(VOTER ID|ELECTION COMMISSION OF INDIA|ELECTOR PHOTO)\b/.test(up)) {
     return join("Voter ID", person);
+  }
+  if (/\bPASSPORT\b|REPUBLIC OF INDIA.*TYPE\s*P/i.test(up)) {
+    // Person > MRZ name > passport number as fallback
+    const qualifier = person || mrzGivenName(up) || extractDocId(text, "passport");
+    return join("Passport", qualifier);
   }
 
   for (const [re, label, q] of KINDS) {
     if (!re.test(up)) continue;
     if (q === "person") return join(label, person);
     if (q === "year") return join(label, year);
+    // For bank statements, prefer date; add account only if no date
+    if (label === "Bank Statement") {
+      const dateQual = latest ? monthYear(latest) : undefined;
+      const qualifier = dateQual || extractDocId(text, "account");
+      return join(label, qualifier);
+    }
     return join(label, latest ? monthYear(latest) : undefined);
   }
   return null;

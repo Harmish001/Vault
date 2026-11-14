@@ -37,6 +37,7 @@ import NotesScreen from "./src/screens/NotesScreen";
 import NoteEditScreen from "./src/screens/NoteEditScreen";
 import SmartShareScreen from "./src/screens/SmartShareScreen";
 import ShareQRScreen from "./src/screens/ShareQRScreen";
+import ShareBundlesScreen from "./src/screens/ShareBundlesScreen";
 import FileViewerScreen from "./src/screens/FileViewerScreen";
 
 import { refreshWidgets } from "./src/widget";
@@ -311,6 +312,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="Reminders" component={RemindersScreen} />
         <Stack.Screen name="ReminderEdit" component={ReminderEditScreen} />
         <Stack.Screen name="ShareChooser" component={ShareChooserScreen} />
+        <Stack.Screen name="ShareBundles" component={ShareBundlesScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />
         <Stack.Screen name="MyCard" component={MyCardScreen} />
         <Stack.Screen name="Notes" component={NotesScreen} options={{ animation: "none" }} />
