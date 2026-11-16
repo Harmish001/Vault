@@ -6,31 +6,31 @@ export const THEME_PALETTES: Record<
   { bg: string; text: string; headerBg: string; border: string; activeIcon: string }
 > = {
   light: {
-    bg: "#FFFFFF",
-    text: "#1A1A1A",
-    headerBg: "#F6F5F2",
+    bg: "#F6F5F2",
+    text: "#1C1917",
+    headerBg: "#FFFFFF",
     border: "#E2E0DA",
     activeIcon: "#7A1F35",
   },
   sepia: {
-    bg: "#F8F1E3",
+    bg: "#F4EBD9",
     text: "#433422",
-    headerBg: "#EFE5CE",
-    border: "#E0D3B8",
+    headerBg: "#EDE1CA",
+    border: "#DFD0B5",
     activeIcon: "#8A5A2B",
   },
   dark: {
-    bg: "#222222",
-    text: "#D8D8D8",
-    headerBg: "#1C1C1C",
-    border: "#333333",
+    bg: "#1E1E1E",
+    text: "#E0E0E0",
+    headerBg: "#2A2A2A",
+    border: "#3A3A3A",
     activeIcon: "#E89CAE",
   },
   black: {
     bg: "#000000",
-    text: "#B0B0B0",
-    headerBg: "#0A0A0A",
-    border: "#222222",
+    text: "#B8B8B8",
+    headerBg: "#121212",
+    border: "#262626",
     activeIcon: "#FFFFFF",
   },
 };
@@ -114,10 +114,10 @@ export function getReaderHtml(
       };
 
       var THEMES = {
-        light: { bg: "#FFFFFF", text: "#1A1A1A" },
-        sepia: { bg: "#F8F1E3", text: "#433422" },
-        dark: { bg: "#222222", text: "#D8D8D8" },
-        black: { bg: "#000000", text: "#B0B0B0" }
+        light: { bg: "#FFFFFF", text: "#1C1917" },
+        sepia: { bg: "#F4EBD9", text: "#433422" },
+        dark: { bg: "#1E1E1E", text: "#E0E0E0" },
+        black: { bg: "#000000", text: "#B8B8B8" }
       };
 
       var currentSettings = ${JSON.stringify(settings)};
@@ -134,9 +134,37 @@ export function getReaderHtml(
         if (loadingEl) {
           loadingEl.classList.add("hidden");
           setTimeout(function() {
-            if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
+            if (loadingEl && loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
           }, 300);
         }
+      }
+
+      function turnPage(dir) {
+        if (!rendition) return;
+        var viewer = document.getElementById("viewer");
+        if (!viewer) {
+          if (dir === "next") rendition.next(); else rendition.prev();
+          return;
+        }
+        viewer.style.transition = "transform 0.12s ease-out, opacity 0.12s ease-out";
+        viewer.style.transform = dir === "next" ? "translateX(-16px)" : "translateX(16px)";
+        viewer.style.opacity = "0.75";
+        setTimeout(function() {
+          var p = dir === "next" ? rendition.next() : rendition.prev();
+          var onDone = function() {
+            viewer.style.transition = "none";
+            viewer.style.transform = dir === "next" ? "translateX(16px)" : "translateX(-16px)";
+            void viewer.offsetWidth;
+            viewer.style.transition = "transform 0.22s cubic-bezier(0.2, 0, 0.25, 1), opacity 0.22s ease-out";
+            viewer.style.transform = "translateX(0)";
+            viewer.style.opacity = "1";
+          };
+          if (p && p.then) {
+            p.then(onDone).catch(onDone);
+          } else {
+            onDone();
+          }
+        }, 90);
       }
 
       function applyStyles(s) {
@@ -195,9 +223,9 @@ export function getReaderHtml(
             // Horizontal swipe with minimum 40px delta
             if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
               if (diffX < 0) {
-                rendition.next();
+                turnPage("next");
               } else {
-                rendition.prev();
+                turnPage("prev");
               }
             }
           }, { passive: true });
@@ -219,10 +247,10 @@ export function getReaderHtml(
             var x = e.clientX;
             if (currentSettings.tapZonesEnabled !== false) {
               if (x < width * 0.3) {
-                rendition.prev();
+                turnPage("prev");
                 return;
               } else if (x > width * 0.7) {
-                rendition.next();
+                turnPage("next");
                 return;
               }
             }
@@ -326,10 +354,10 @@ export function getReaderHtml(
         if (!data || !rendition) return;
         switch (data.action) {
           case "next":
-            rendition.next();
+            turnPage("next");
             break;
           case "prev":
-            rendition.prev();
+            turnPage("prev");
             break;
           case "jump_cfi":
             if (data.cfi) rendition.display(data.cfi);
@@ -344,10 +372,9 @@ export function getReaderHtml(
             if (data.href) rendition.display(data.href);
             break;
           case "update_settings":
-            if (data.settings) {
-              currentSettings = data.settings;
-              applyStyles(currentSettings);
-            }
+            var newSettings = data.settings || data;
+            currentSettings = Object.assign({}, currentSettings, newSettings);
+            applyStyles(currentSettings);
             break;
           case "load_locations":
             if (data.locations && book) {

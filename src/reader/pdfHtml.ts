@@ -10,6 +10,17 @@ export function getPdfReaderHtml(
 ): string {
   const theme = THEME_PALETTES[themeName] || THEME_PALETTES.light;
   const isDark = themeName === "dark" || themeName === "black";
+  const isBlack = themeName === "black";
+  const isSepia = themeName === "sepia";
+
+  let initialFilter = "none";
+  if (isDark) {
+    initialFilter = isBlack
+      ? "invert(1) hue-rotate(180deg) contrast(1.1)"
+      : "invert(0.88) hue-rotate(180deg) contrast(1.05)";
+  } else if (isSepia) {
+    initialFilter = "sepia(0.38) contrast(0.95) brightness(0.96)";
+  }
 
   return `<!DOCTYPE html>
 <html>
@@ -31,6 +42,7 @@ export function getPdfReaderHtml(
       color: ${theme.text};
       user-select: none;
       -webkit-user-select: none;
+      transition: background-color 0.25s ease, color 0.25s ease;
     }
     #container {
       width: 100%;
@@ -40,13 +52,62 @@ export function getPdfReaderHtml(
       justify-content: center;
       position: relative;
       overflow: hidden;
+      perspective: 1400px;
+      background-color: ${theme.bg};
+      transition: background-color 0.25s ease;
+    }
+    #page-wrapper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .page-layer {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      will-change: transform, opacity;
+      pointer-events: none;
+    }
+    .page-layer.active {
+      z-index: 2;
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .page-layer.idle {
+      z-index: 1;
+      opacity: 0;
+      pointer-events: none;
     }
     canvas {
       max-width: 100%;
       max-height: 100%;
       object-fit: contain;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-      ${isDark ? "filter: invert(0.88) hue-rotate(180deg);" : ""}
+      border-radius: 2px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+      filter: ${initialFilter};
+      transition: filter 0.25s ease;
+    }
+    .page-shadow {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 32px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      z-index: 5;
+    }
+    .shadow-left {
+      left: 0;
+      background: linear-gradient(to right, rgba(0,0,0,0.28), rgba(0,0,0,0.08) 60%, transparent);
+    }
+    .shadow-right {
+      right: 0;
+      background: linear-gradient(to left, rgba(0,0,0,0.28), rgba(0,0,0,0.08) 60%, transparent);
     }
     #loading {
       position: absolute;
@@ -58,7 +119,8 @@ export function getPdfReaderHtml(
       color: ${theme.text};
       font-family: system-ui, -apple-system, Roboto, sans-serif;
       font-size: 15px;
-      z-index: 10;
+      z-index: 20;
+      transition: opacity 0.25s ease-out;
     }
   </style>
   <script>
@@ -77,7 +139,18 @@ export function getPdfReaderHtml(
 <body>
   <div id="loading">Opening PDF…</div>
   <div id="container">
-    <canvas id="pdf-canvas"></canvas>
+    <div id="page-wrapper">
+      <div id="layer-a" class="page-layer active">
+        <canvas id="canvas-a"></canvas>
+        <div class="page-shadow shadow-left"></div>
+        <div class="page-shadow shadow-right"></div>
+      </div>
+      <div id="layer-b" class="page-layer idle">
+        <canvas id="canvas-b"></canvas>
+        <div class="page-shadow shadow-left"></div>
+        <div class="page-shadow shadow-right"></div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -93,20 +166,81 @@ export function getPdfReaderHtml(
       var pdfSource = ${JSON.stringify(pdfUriOrBase64)};
       var isB64 = ${isBase64 ? "true" : "false"};
       var curPage = ${Math.max(1, initialPage || 1)};
+      var currentTheme = ${JSON.stringify(themeName)};
       var pdfDoc = null;
       var totalPages = 0;
       var rendering = false;
+      var isAnimating = false;
       var pendingPage = null;
+      var pendingDirection = "none";
 
-      var canvas = document.getElementById("pdf-canvas");
-      var ctx = canvas.getContext("2d");
+      var layerA = document.getElementById("layer-a");
+      var layerB = document.getElementById("layer-b");
+      var canvasA = document.getElementById("canvas-a");
+      var canvasB = document.getElementById("canvas-b");
+      var ctxA = canvasA.getContext("2d");
+      var ctxB = canvasB.getContext("2d");
       var loadingEl = document.getElementById("loading");
+      var container = document.getElementById("container");
+
+      var activeLayer = layerA;
+      var idleLayer = layerB;
+      var activeCanvas = canvasA;
+      var idleCanvas = canvasB;
+      var activeCtx = ctxA;
+      var idleCtx = ctxB;
+
+      function getFilterForTheme(t) {
+        if (t === "black") return "invert(1) hue-rotate(180deg) contrast(1.1)";
+        if (t === "dark") return "invert(0.88) hue-rotate(180deg) contrast(1.05)";
+        if (t === "sepia") return "sepia(0.38) contrast(0.95) brightness(0.96)";
+        return "none";
+      }
+
+      function getBgForTheme(t) {
+        if (t === "dark") return "#1E1E1E";
+        if (t === "black") return "#000000";
+        if (t === "sepia") return "#F4EBD9";
+        return "#F6F5F2";
+      }
+
+      function getColorForTheme(t) {
+        if (t === "dark") return "#E0E0E0";
+        if (t === "black") return "#B8B8B8";
+        if (t === "sepia") return "#433422";
+        return "#1C1917";
+      }
+
+      function applyTheme(t) {
+        currentTheme = t;
+        var bg = getBgForTheme(t);
+        var col = getColorForTheme(t);
+        var flt = getFilterForTheme(t);
+
+        document.body.style.backgroundColor = bg;
+        document.body.style.color = col;
+        if (container) container.style.backgroundColor = bg;
+        if (canvasA) canvasA.style.filter = flt;
+        if (canvasB) canvasB.style.filter = flt;
+      }
+
+      function hideLoading() {
+        if (loadingEl) {
+          loadingEl.style.opacity = "0";
+          setTimeout(function() {
+            if (loadingEl && loadingEl.parentNode) {
+              loadingEl.parentNode.removeChild(loadingEl);
+              loadingEl = null;
+            }
+          }, 250);
+        }
+      }
 
       function onPdfLoaded(pdf) {
         pdfDoc = pdf;
         totalPages = pdf.numPages;
         post({ type: "loaded", pages: totalPages });
-        renderPage(curPage);
+        renderPage(curPage, "none");
       }
 
       function onPdfError(err) {
@@ -124,7 +258,7 @@ export function getPdfReaderHtml(
             var items = (tc && tc.items) || [];
             var text = items.map(function(it) { return it.str; }).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 
-            var canvas = document.getElementById("pdf-canvas");
+            var canvas = activeCanvas;
             var imgData = null;
             try {
               imgData = canvas ? canvas.toDataURL("image/jpeg", 0.8) : null;
@@ -137,7 +271,7 @@ export function getPdfReaderHtml(
               imageData: imgData
             });
           }).catch(function() {
-            var canvas = document.getElementById("pdf-canvas");
+            var canvas = activeCanvas;
             var imgData = null;
             try {
               imgData = canvas ? canvas.toDataURL("image/jpeg", 0.8) : null;
@@ -159,20 +293,27 @@ export function getPdfReaderHtml(
         });
       }
 
-      function renderPage(num) {
+      function renderPage(num, direction) {
         if (!pdfDoc) return;
         if (num < 1) num = 1;
         if (num > totalPages) num = totalPages;
-        curPage = num;
 
-        if (rendering) {
+        if (direction === undefined) {
+          if (num > curPage) direction = "next";
+          else if (num < curPage) direction = "prev";
+          else direction = "none";
+        }
+
+        if (rendering || isAnimating) {
           pendingPage = num;
+          pendingDirection = direction;
           return;
         }
 
         rendering = true;
-        pdfDoc.getPage(num).then(function(page) {
-          var container = document.getElementById("container");
+        var targetPageNum = num;
+
+        pdfDoc.getPage(targetPageNum).then(function(page) {
           var cWidth = container.clientWidth || window.innerWidth;
           var cHeight = container.clientHeight || window.innerHeight;
 
@@ -181,36 +322,155 @@ export function getPdfReaderHtml(
           var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
           var viewport = page.getViewport({ scale: scale * dpr });
-          canvas.width = Math.floor(viewport.width);
-          canvas.height = Math.floor(viewport.height);
-          canvas.style.width = Math.floor(viewport.width / dpr) + "px";
-          canvas.style.height = Math.floor(viewport.height / dpr) + "px";
+          var renderCanvas = direction === "none" ? activeCanvas : idleCanvas;
+          var renderCtx = direction === "none" ? activeCtx : idleCtx;
+
+          renderCanvas.width = Math.floor(viewport.width);
+          renderCanvas.height = Math.floor(viewport.height);
+          renderCanvas.style.width = Math.floor(viewport.width / dpr) + "px";
+          renderCanvas.style.height = Math.floor(viewport.height / dpr) + "px";
 
           var renderContext = {
-            canvasContext: ctx,
+            canvasContext: renderCtx,
             viewport: viewport
           };
 
           page.render(renderContext).promise.then(function() {
             rendering = false;
-            if (loadingEl && loadingEl.parentNode) {
-              loadingEl.parentNode.removeChild(loadingEl);
-            }
-            post({
-              type: "page_changed",
-              page: curPage,
-              total: totalPages,
-              percentage: curPage / totalPages
-            });
+            curPage = targetPageNum;
 
-            if (pendingPage !== null) {
-              var nextP = pendingPage;
-              pendingPage = null;
-              renderPage(nextP);
+            if (direction === "none" || loadingEl) {
+              hideLoading();
+              post({
+                type: "page_changed",
+                page: curPage,
+                total: totalPages,
+                percentage: curPage / totalPages
+              });
+              if (pendingPage !== null) {
+                var nextP = pendingPage;
+                var nextD = pendingDirection;
+                pendingPage = null;
+                renderPage(nextP, nextD);
+              }
+              return;
+            }
+
+            // Book page-turn animation (300ms smooth slide with paper depth & shadow)
+            isAnimating = true;
+            var duration = 300;
+
+            if (direction === "next") {
+              // Incoming page slides in from right over current page
+              idleLayer.style.transition = "none";
+              idleLayer.style.transform = "translate3d(100%, 0, 0)";
+              idleLayer.style.opacity = "1";
+              idleLayer.style.zIndex = "3";
+              idleLayer.className = "page-layer active";
+
+              var shadow = idleLayer.querySelector(".shadow-left");
+              if (shadow) shadow.style.opacity = "1";
+
+              void idleLayer.offsetWidth; // force reflow
+
+              idleLayer.style.transition = "transform " + duration + "ms cubic-bezier(0.2, 0, 0.25, 1), box-shadow " + duration + "ms ease";
+              idleLayer.style.transform = "translate3d(0, 0, 0)";
+              idleLayer.style.boxShadow = "-12px 0 28px rgba(0,0,0,0.32)";
+
+              activeLayer.style.transition = "transform " + duration + "ms cubic-bezier(0.2, 0, 0.25, 1), filter " + duration + "ms ease";
+              activeLayer.style.transform = "translate3d(-20%, 0, 0) scale(0.98)";
+              activeLayer.style.filter = "brightness(0.85)";
+
+              setTimeout(function() {
+                if (shadow) shadow.style.opacity = "0";
+                idleLayer.style.boxShadow = "";
+                idleLayer.style.zIndex = "2";
+
+                activeLayer.className = "page-layer idle";
+                activeLayer.style.transition = "none";
+                activeLayer.style.transform = "";
+                activeLayer.style.filter = getFilterForTheme(currentTheme);
+                activeLayer.style.zIndex = "1";
+                activeLayer.style.opacity = "0";
+
+                // Swap active & idle layers
+                var tempL = activeLayer; activeLayer = idleLayer; idleLayer = tempL;
+                var tempC = activeCanvas; activeCanvas = idleCanvas; idleCanvas = tempC;
+                var tempCtx = activeCtx; activeCtx = idleCtx; idleCtx = tempCtx;
+
+                isAnimating = false;
+                post({
+                  type: "page_changed",
+                  page: curPage,
+                  total: totalPages,
+                  percentage: curPage / totalPages
+                });
+
+                if (pendingPage !== null) {
+                  var p = pendingPage;
+                  var d = pendingDirection;
+                  pendingPage = null;
+                  renderPage(p, d);
+                }
+              }, duration);
+
+            } else {
+              // Prev: Current page lifts and slides right revealing previous page underneath
+              idleLayer.style.transition = "none";
+              idleLayer.style.transform = "translate3d(-20%, 0, 0) scale(0.98)";
+              idleLayer.style.filter = "brightness(0.85)";
+              idleLayer.style.opacity = "1";
+              idleLayer.style.zIndex = "1";
+              idleLayer.className = "page-layer active";
+
+              activeLayer.style.zIndex = "3";
+              activeLayer.style.boxShadow = "-12px 0 28px rgba(0,0,0,0.32)";
+
+              void idleLayer.offsetWidth; // force reflow
+
+              activeLayer.style.transition = "transform " + duration + "ms cubic-bezier(0.2, 0, 0.25, 1)";
+              activeLayer.style.transform = "translate3d(100%, 0, 0)";
+
+              idleLayer.style.transition = "transform " + duration + "ms cubic-bezier(0.2, 0, 0.25, 1), filter " + duration + "ms ease";
+              idleLayer.style.transform = "translate3d(0, 0, 0) scale(1)";
+              idleLayer.style.filter = getFilterForTheme(currentTheme);
+
+              setTimeout(function() {
+                activeLayer.className = "page-layer idle";
+                activeLayer.style.transition = "none";
+                activeLayer.style.transform = "";
+                activeLayer.style.boxShadow = "";
+                activeLayer.style.filter = getFilterForTheme(currentTheme);
+                activeLayer.style.zIndex = "1";
+                activeLayer.style.opacity = "0";
+
+                idleLayer.style.zIndex = "2";
+
+                // Swap active & idle layers
+                var tempL = activeLayer; activeLayer = idleLayer; idleLayer = tempL;
+                var tempC = activeCanvas; activeCanvas = idleCanvas; idleCanvas = tempC;
+                var tempCtx = activeCtx; activeCtx = idleCtx; idleCtx = tempCtx;
+
+                isAnimating = false;
+                post({
+                  type: "page_changed",
+                  page: curPage,
+                  total: totalPages,
+                  percentage: curPage / totalPages
+                });
+
+                if (pendingPage !== null) {
+                  var p = pendingPage;
+                  var d = pendingDirection;
+                  pendingPage = null;
+                  renderPage(p, d);
+                }
+              }, duration);
             }
           });
         }).catch(function(err) {
           rendering = false;
+          isAnimating = false;
           onPdfError(err);
         });
       }
@@ -256,7 +516,6 @@ export function getPdfReaderHtml(
       }
 
       // Tap zones: left 30% prev, right 30% next, center 40% toggle UI
-      var container = document.getElementById("container");
       var touchStartX = 0;
       var touchStartY = 0;
 
@@ -275,9 +534,9 @@ export function getPdfReaderHtml(
         // Horizontal swipe gesture
         if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
           if (diffX < 0) {
-            renderPage(curPage + 1);
+            renderPage(curPage + 1, "next");
           } else {
-            renderPage(curPage - 1);
+            renderPage(curPage - 1, "prev");
           }
         }
       }, { passive: true });
@@ -286,9 +545,9 @@ export function getPdfReaderHtml(
         var width = window.innerWidth;
         var x = e.clientX;
         if (x < width * 0.3) {
-          renderPage(curPage - 1);
+          renderPage(curPage - 1, "prev");
         } else if (x > width * 0.7) {
-          renderPage(curPage + 1);
+          renderPage(curPage + 1, "next");
         } else {
           post({ type: "toggle_ui" });
         }
@@ -299,16 +558,19 @@ export function getPdfReaderHtml(
         if (!data) return;
         switch (data.action) {
           case "next":
-            renderPage(curPage + 1);
+            renderPage(curPage + 1, "next");
             break;
           case "prev":
-            renderPage(curPage - 1);
+            renderPage(curPage - 1, "prev");
             break;
           case "jump_page":
             if (typeof data.page === "number") renderPage(data.page);
             break;
           case "extract_page_text":
             extractCurrentPageText();
+            break;
+          case "update_settings":
+            if (data.theme) applyTheme(data.theme);
             break;
         }
       };

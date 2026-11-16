@@ -454,6 +454,11 @@ export default function BookReaderScreen({ navigation, route }: Props) {
     }
   };
 
+  // Initial values stored at mount time so progress updates never recreate htmlSource
+  const initialPdfPage = useRef(book?.progress.pdfPage || 1);
+  const initialEpubCfi = useRef(book?.progress.epubCfi ?? null);
+  const initialSettings = useRef(readerSettings);
+
   // HTML source for WebView
   const htmlSource = useMemo(() => {
     if (!decryptedUri) return null;
@@ -461,23 +466,20 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       return getPdfReaderHtml(
         decryptedUri,
         false,
-        book.progress.pdfPage || 1,
-        readerSettings.theme
+        initialPdfPage.current,
+        initialSettings.current.theme
       );
     }
     return getReaderHtml(
       decryptedUri,
       false,
-      book?.progress.epubCfi ?? null,
-      readerSettings,
+      initialEpubCfi.current,
+      initialSettings.current,
       cachedLocations
     );
   }, [
     decryptedUri,
     book?.type,
-    book?.progress.pdfPage,
-    book?.progress.epubCfi,
-    readerSettings,
     cachedLocations,
   ]);
 
@@ -524,7 +526,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       {/* Loading Overlay */}
       {loading && (
         <View style={[StyleSheet.absoluteFill, styles.loadingOverlay, { backgroundColor: theme.bg }]}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={theme.activeIcon} />
           <Text style={[styles.loadingLabel, { color: theme.text }]}>Opening book…</Text>
         </View>
       )}
@@ -664,7 +666,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       <Modal visible={tocVisible} transparent animationType="slide" onRequestClose={() => setTocVisible(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setTocVisible(false)}>
           <Pressable
-            style={[styles.sheetContainer, { backgroundColor: theme.bg }]}
+            style={[styles.sheetContainer, { backgroundColor: theme.headerBg, borderColor: theme.border }]}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={[styles.sheetHeader, { borderBottomColor: theme.border }]}>
@@ -680,23 +682,30 @@ export default function BookReaderScreen({ navigation, route }: Props) {
               ) : (
                 tocList.map((item, index) => {
                   const isCurrent = chapterLabel && item.label.trim() === chapterLabel.trim();
+                  const isDarkReader = readerSettings.theme === "dark" || readerSettings.theme === "black";
                   return (
                     <Pressable
                       key={item.id || item.href || String(index)}
                       onPress={() => handleSelectChapter(item.href)}
-                      style={[styles.tocRow, isCurrent && { backgroundColor: colors.primarySoft }]}
+                      style={[
+                        styles.tocRow,
+                        isCurrent && {
+                          backgroundColor: isDarkReader ? "#2D2228" : colors.primarySoft,
+                          borderRadius: radius.sm,
+                        },
+                      ]}
                     >
                       <Text
                         style={[
                           styles.tocLabel,
-                          { color: isCurrent ? colors.primary : theme.text },
+                          { color: isCurrent ? theme.activeIcon : theme.text },
                           isCurrent && { fontFamily: fonts.semibold },
                         ]}
                         numberOfLines={2}
                       >
                         {item.label ? item.label.trim() : `Chapter ${index + 1}`}
                       </Text>
-                      {isCurrent && <Feather name="check" size={16} color={colors.primary} />}
+                      {isCurrent && <Feather name="check" size={16} color={theme.activeIcon} />}
                     </Pressable>
                   );
                 })
@@ -710,7 +719,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       <Modal visible={settingsVisible} transparent animationType="slide" onRequestClose={() => setSettingsVisible(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setSettingsVisible(false)}>
           <Pressable
-            style={[styles.sheetContainer, { backgroundColor: theme.headerBg }]}
+            style={[styles.sheetContainer, { backgroundColor: theme.headerBg, borderColor: theme.border }]}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={[styles.sheetHeader, { borderBottomColor: theme.border }]}>
@@ -733,13 +742,19 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                       onPress={() => handleUpdateSettings({ theme: t })}
                       style={[
                         styles.themeButton,
-                        { backgroundColor: pal.bg, borderColor: active ? colors.primary : pal.border },
-                        active && styles.themeButtonActive,
+                        {
+                          backgroundColor: pal.bg,
+                          borderColor: active ? pal.activeIcon : pal.border,
+                          borderWidth: active ? 2 : 1,
+                        },
                       ]}
                     >
                       <Text style={[styles.themeButtonText, { color: pal.text }]}>
                         {t === "light" ? "Light" : t === "sepia" ? "Sepia" : t === "dark" ? "Dark" : "Black"}
                       </Text>
+                      {active && (
+                        <Feather name="check" size={12} color={pal.activeIcon} style={{ marginLeft: 3 }} />
+                      )}
                     </Pressable>
                   );
                 })}
@@ -774,16 +789,25 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                       { label: "Sans", value: "Figtree, sans-serif" },
                     ].map((f) => {
                       const active = readerSettings.fontFamily === f.value;
+                      const isDark = readerSettings.theme === "dark" || readerSettings.theme === "black";
                       return (
                         <Pressable
                           key={f.value}
                           onPress={() => handleUpdateSettings({ fontFamily: f.value })}
                           style={[
                             styles.chipOption,
-                            { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
+                            {
+                              backgroundColor: active ? theme.activeIcon : theme.bg,
+                              borderColor: active ? theme.activeIcon : theme.border,
+                            },
                           ]}
                         >
-                          <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
+                          <Text
+                            style={[
+                              styles.chipOptionText,
+                              { color: active ? (isDark ? "#121212" : colors.onPrimary) : theme.text },
+                            ]}
+                          >
                             {f.label}
                           </Text>
                         </Pressable>
@@ -796,16 +820,25 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                   <View style={styles.fontFamilyRow}>
                     {(["small", "medium", "large"] as ReaderMargin[]).map((m) => {
                       const active = readerSettings.margin === m;
+                      const isDark = readerSettings.theme === "dark" || readerSettings.theme === "black";
                       return (
                         <Pressable
                           key={m}
                           onPress={() => handleUpdateSettings({ margin: m })}
                           style={[
                             styles.chipOption,
-                            { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
+                            {
+                              backgroundColor: active ? theme.activeIcon : theme.bg,
+                              borderColor: active ? theme.activeIcon : theme.border,
+                            },
                           ]}
                         >
-                          <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
+                          <Text
+                            style={[
+                              styles.chipOptionText,
+                              { color: active ? (isDark ? "#121212" : colors.onPrimary) : theme.text },
+                            ]}
+                          >
                             {m === "small" ? "Small" : m === "medium" ? "Medium" : "Large"}
                           </Text>
                         </Pressable>
@@ -818,16 +851,25 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                   <View style={styles.fontFamilyRow}>
                     {(["left", "justify"] as ReaderTextAlign[]).map((a) => {
                       const active = readerSettings.textAlign === a;
+                      const isDark = readerSettings.theme === "dark" || readerSettings.theme === "black";
                       return (
                         <Pressable
                           key={a}
                           onPress={() => handleUpdateSettings({ textAlign: a })}
                           style={[
                             styles.chipOption,
-                            { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
+                            {
+                              backgroundColor: active ? theme.activeIcon : theme.bg,
+                              borderColor: active ? theme.activeIcon : theme.border,
+                            },
                           ]}
                         >
-                          <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
+                          <Text
+                            style={[
+                              styles.chipOptionText,
+                              { color: active ? (isDark ? "#121212" : colors.onPrimary) : theme.text },
+                            ]}
+                          >
                             {a === "left" ? "Left Align" : "Justify"}
                           </Text>
                         </Pressable>
@@ -836,8 +878,8 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                   </View>
                 </>
               ) : (
-                <View style={[styles.pdfNoteBox, { backgroundColor: theme.headerBg, borderColor: theme.border }]}>
-                  <Feather name="info" size={15} color={colors.primary} />
+                <View style={[styles.pdfNoteBox, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                  <Feather name="info" size={15} color={theme.activeIcon} />
                   <Text style={[styles.pdfNoteText, { color: theme.text }]}>
                     Fixed-layout PDF document. Theme and brightness adjustments apply.
                   </Text>
@@ -852,20 +894,82 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                     setBrightnessVal(0.2);
                     handleUpdateSettings({ brightness: 0.2 });
                   }}
-                  style={[styles.chipOption, { backgroundColor: theme.bg, borderColor: theme.border }]}
+                  style={[
+                    styles.chipOption,
+                    {
+                      backgroundColor: brightnessVal === 0.2 ? theme.activeIcon : theme.bg,
+                      borderColor: brightnessVal === 0.2 ? theme.activeIcon : theme.border,
+                    },
+                  ]}
                 >
-                  <Feather name="moon" size={14} color={theme.text} style={{ marginRight: 4 }} />
-                  <Text style={[styles.chipOptionText, { color: theme.text }]}>Low</Text>
+                  <Feather
+                    name="moon"
+                    size={14}
+                    color={
+                      brightnessVal === 0.2
+                        ? readerSettings.theme === "dark" || readerSettings.theme === "black"
+                          ? "#121212"
+                          : colors.onPrimary
+                        : theme.text
+                    }
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text
+                    style={[
+                      styles.chipOptionText,
+                      {
+                        color:
+                          brightnessVal === 0.2
+                            ? readerSettings.theme === "dark" || readerSettings.theme === "black"
+                              ? "#121212"
+                              : colors.onPrimary
+                            : theme.text,
+                      },
+                    ]}
+                  >
+                    Low
+                  </Text>
                 </Pressable>
                 <Pressable
                   onPress={() => {
                     setBrightnessVal(0.6);
                     handleUpdateSettings({ brightness: 0.6 });
                   }}
-                  style={[styles.chipOption, { backgroundColor: theme.bg, borderColor: theme.border }]}
+                  style={[
+                    styles.chipOption,
+                    {
+                      backgroundColor: brightnessVal === 0.6 ? theme.activeIcon : theme.bg,
+                      borderColor: brightnessVal === 0.6 ? theme.activeIcon : theme.border,
+                    },
+                  ]}
                 >
-                  <Feather name="sun" size={14} color={theme.text} style={{ marginRight: 4 }} />
-                  <Text style={[styles.chipOptionText, { color: theme.text }]}>Mid</Text>
+                  <Feather
+                    name="sun"
+                    size={14}
+                    color={
+                      brightnessVal === 0.6
+                        ? readerSettings.theme === "dark" || readerSettings.theme === "black"
+                          ? "#121212"
+                          : colors.onPrimary
+                        : theme.text
+                    }
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text
+                    style={[
+                      styles.chipOptionText,
+                      {
+                        color:
+                          brightnessVal === 0.6
+                            ? readerSettings.theme === "dark" || readerSettings.theme === "black"
+                              ? "#121212"
+                              : colors.onPrimary
+                            : theme.text,
+                      },
+                    ]}
+                  >
+                    Mid
+                  </Text>
                 </Pressable>
                 <Pressable
                   onPress={() => {
@@ -875,12 +979,24 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                   style={[
                     styles.chipOption,
                     {
-                      backgroundColor: brightnessVal === null ? colors.primary : theme.bg,
-                      borderColor: theme.border,
+                      backgroundColor: brightnessVal === null ? theme.activeIcon : theme.bg,
+                      borderColor: brightnessVal === null ? theme.activeIcon : theme.border,
                     },
                   ]}
                 >
-                  <Text style={[styles.chipOptionText, { color: brightnessVal === null ? colors.onPrimary : theme.text }]}>
+                  <Text
+                    style={[
+                      styles.chipOptionText,
+                      {
+                        color:
+                          brightnessVal === null
+                            ? readerSettings.theme === "dark" || readerSettings.theme === "black"
+                              ? "#121212"
+                              : colors.onPrimary
+                            : theme.text,
+                      },
+                    ]}
+                  >
                     System
                   </Text>
                 </Pressable>
@@ -899,7 +1015,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setNoteModalVisible(false)}>
           <Pressable
-            style={[styles.noteSheetContainer, { backgroundColor: theme.bg, borderColor: theme.border }]}
+            style={[styles.noteSheetContainer, { backgroundColor: theme.headerBg, borderColor: theme.border }]}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={[styles.sheetHeader, { borderBottomColor: theme.border }]}>
@@ -924,14 +1040,23 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                   <Pressable
                     onPress={handleRunOcr}
                     disabled={ocrRunning}
-                    style={[styles.ocrBtn, { borderColor: theme.border }]}
+                    style={[
+                      styles.ocrBtn,
+                      {
+                        borderColor: theme.border,
+                        backgroundColor:
+                          readerSettings.theme === "dark" || readerSettings.theme === "black"
+                            ? "#2D2228"
+                            : colors.primarySoft,
+                      },
+                    ]}
                   >
                     {ocrRunning ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
+                      <ActivityIndicator size="small" color={theme.activeIcon} />
                     ) : (
                       <>
-                        <Feather name="camera" size={13} color={colors.primary} />
-                        <Text style={styles.ocrBtnText}>Run OCR</Text>
+                        <Feather name="camera" size={13} color={theme.activeIcon} />
+                        <Text style={[styles.ocrBtnText, { color: theme.activeIcon }]}>Run OCR</Text>
                       </>
                     )}
                   </Pressable>
@@ -949,7 +1074,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                   styles.noteTextInput,
                   {
                     color: theme.text,
-                    backgroundColor: theme.headerBg,
+                    backgroundColor: theme.bg,
                     borderColor: theme.border,
                   },
                 ]}
@@ -998,7 +1123,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                   styles.commentInput,
                   {
                     color: theme.text,
-                    backgroundColor: theme.headerBg,
+                    backgroundColor: theme.bg,
                     borderColor: theme.border,
                   },
                 ]}
@@ -1008,14 +1133,43 @@ export default function BookReaderScreen({ navigation, route }: Props) {
               <View style={styles.noteActionRow}>
                 <Pressable
                   onPress={() => setNoteModalVisible(false)}
-                  style={[styles.noteCancelBtn, { borderColor: theme.border }]}
+                  style={[styles.noteCancelBtn, { borderColor: theme.border, backgroundColor: theme.bg }]}
                 >
                   <Text style={[styles.noteCancelText, { color: theme.text }]}>Cancel</Text>
                 </Pressable>
 
-                <Pressable onPress={handleSaveNote} style={styles.noteSaveBtn}>
-                  <Feather name="check" size={16} color={colors.onPrimary} style={{ marginRight: 6 }} />
-                  <Text style={styles.noteSaveText}>Save Note</Text>
+                <Pressable
+                  onPress={handleSaveNote}
+                  style={[
+                    styles.noteSaveBtn,
+                    {
+                      backgroundColor: theme.activeIcon,
+                    },
+                  ]}
+                >
+                  <Feather
+                    name="check"
+                    size={16}
+                    color={
+                      readerSettings.theme === "dark" || readerSettings.theme === "black"
+                        ? "#121212"
+                        : colors.onPrimary
+                    }
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text
+                    style={[
+                      styles.noteSaveText,
+                      {
+                        color:
+                          readerSettings.theme === "dark" || readerSettings.theme === "black"
+                            ? "#121212"
+                            : colors.onPrimary,
+                      },
+                    ]}
+                  >
+                    Save Note
+                  </Text>
                 </Pressable>
               </View>
             </ScrollView>
