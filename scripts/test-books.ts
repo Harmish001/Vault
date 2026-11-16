@@ -2,6 +2,7 @@ import assert from "node:assert";
 import JSZip from "jszip";
 import { DRM_ERROR_MESSAGE, parseEpub } from "../src/reader/epubMetadata";
 import { Book, getBookStatus } from "../src/types";
+import { getPdfReaderHtml } from "../src/reader/pdfHtml";
 
 console.log("running books and reader tests...");
 
@@ -103,7 +104,34 @@ async function runTests() {
 
   testBook.progress.percentage = 0.99;
   assert.strictEqual(getBookStatus(testBook), "finished");
+
+  // PDF book status with pdfPage
+  const pdfBook: Book = {
+    id: "b-pdf",
+    title: "Test PDF Book",
+    type: "pdf",
+    isFavorite: false,
+    addedAt: Date.now(),
+    progress: {
+      percentage: 0,
+      pdfPage: 12,
+      pdfTotalPages: 50,
+      updatedAt: Date.now(),
+    },
+  };
+  assert.strictEqual(getBookStatus(pdfBook), "reading", "PDF with page progress is reading");
   console.log("ok - Book status derivation (unread, reading, finished)");
+
+  // Test 5: PDF reader HTML generation
+  const dummyPdfB64 = Buffer.from("%PDF-1.4 test").toString("base64");
+  const htmlLight = getPdfReaderHtml(dummyPdfB64, 5, "light");
+  assert.ok(htmlLight.includes("pdfjsLib"), "PDF HTML includes pdfjsLib");
+  assert.ok(htmlLight.includes(dummyPdfB64), "PDF HTML includes base64 payload");
+  assert.ok(htmlLight.includes("curPage = 5"), "PDF HTML sets initial page");
+
+  const htmlDark = getPdfReaderHtml(dummyPdfB64, 1, "dark");
+  assert.ok(htmlDark.includes("filter: invert"), "Dark theme applies canvas invert filter");
+  console.log("ok - Offline PDF HTML template generator and theme filters");
 
   console.log("All books and reader tests passed successfully!");
 }

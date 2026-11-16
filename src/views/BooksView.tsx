@@ -4,6 +4,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -183,8 +184,8 @@ export default function BooksView({ navigation }: Props) {
       setImporting(false);
       ToastAndroid.show(`"${title}" added to Books`, ToastAndroid.SHORT);
 
-      // Open reader directly for EPUB
-      if (isEpub) {
+      // Open reader directly for EPUB or PDF
+      if (isEpub || isPdf) {
         navigation.navigate("BookReader", { bookId: created.id });
       }
     } catch (err: any) {
@@ -194,10 +195,10 @@ export default function BooksView({ navigation }: Props) {
   }
 
   function handleBookPress(book: Book) {
-    if (book.type === "epub") {
+    if (book.type === "epub" || book.type === "pdf") {
       navigation.navigate("BookReader", { bookId: book.id });
     } else {
-      // PDF or external: navigate to BookDetail or Reader
+      // External: navigate to BookDetail
       navigation.navigate("BookDetail", { bookId: book.id });
     }
   }
@@ -296,8 +297,8 @@ export default function BooksView({ navigation }: Props) {
   return (
     <View style={styles.container}>
       {/* Search Bar */}
-      <View style={styles.searchRow}>
-        <Feather name="search" size={17} color={colors.muted} />
+      <View style={styles.search}>
+        <Feather name="search" size={18} color={colors.muted} />
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -305,11 +306,10 @@ export default function BooksView({ navigation }: Props) {
           placeholderTextColor={colors.muted}
           style={styles.searchInput}
           returnKeyType="search"
-          clearButtonMode="while-editing"
         />
         {query.length > 0 && (
-          <Pressable onPress={() => setQuery("")} hitSlop={8}>
-            <Feather name="x" size={16} color={colors.muted} />
+          <Pressable onPress={() => setQuery("")} hitSlop={10} accessibilityLabel="Clear search">
+            <Feather name="x" size={18} color={colors.muted} />
           </Pressable>
         )}
       </View>
@@ -507,6 +507,19 @@ export default function BooksView({ navigation }: Props) {
         items={menuItems}
         onClose={() => setMenuBook(null)}
       />
+
+      {/* Importing Loader Modal */}
+      <Modal visible={importing} transparent animationType="fade">
+        <View style={styles.importingOverlay}>
+          <View style={styles.importingCard}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.importingTitle}>Importing book…</Text>
+            <Text style={styles.importingSub}>
+              Encrypting into DocVault. Please wait a moment.
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -516,26 +529,59 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
-  searchRow: {
+  search: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    marginHorizontal: 16,
-    marginTop: 10,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    height: 42,
     borderWidth: 1,
     borderColor: colors.line,
-    gap: 8,
+    borderRadius: radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 10,
   },
   searchInput: {
     flex: 1,
     fontFamily: fonts.body,
-    fontSize: 14.5,
+    fontSize: 15,
     color: colors.ink,
     padding: 0,
+  },
+  importingOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  importingCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: 24,
+    alignItems: "center",
+    maxWidth: 320,
+    width: "100%",
+    gap: 12,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  importingTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 17,
+    color: colors.ink,
+    textAlign: "center",
+  },
+  importingSub: {
+    fontFamily: fonts.body,
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: "center",
+    lineHeight: 18,
   },
   filterBar: {
     marginBottom: 8,

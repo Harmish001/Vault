@@ -234,7 +234,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
               </Text>
             </View>
 
-            {book.filePath && book.type === "epub" && (
+            {book.filePath && (book.type === "epub" || book.type === "pdf") && (
               <Pressable
                 onPress={() => navigation.navigate("BookReader", { bookId: book.id })}
                 style={styles.continueBtn}

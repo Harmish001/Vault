@@ -21,10 +21,12 @@ import * as Brightness from "expo-brightness";
 
 const RNWebView = WebView as unknown as React.ComponentType<any>;
 import { RootStackParamList } from "../navigation";
+import * as FileSystem from "expo-file-system/legacy";
 import { useVault } from "../storage/vault";
 import { colors, fonts, radius } from "../theme";
 import { BookProgress, ReaderMargin, ReaderSettings, ReaderTextAlign, ReaderTheme } from "../types";
 import { getReaderHtml, THEME_PALETTES } from "../reader/readerHtml";
+import { getPdfReaderHtml } from "../reader/pdfHtml";
 
 type Props = NativeStackScreenProps<RootStackParamList, "BookReader">;
 
@@ -61,6 +63,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
 
   // State
   const [decryptedUri, setDecryptedUri] = useState<string | null>(null);
+  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [cachedLocations, setCachedLocations] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -75,8 +78,8 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const [percentage, setPercentage] = useState<number>(book?.progress.percentage ?? 0);
   const [chapterLabel, setChapterLabel] = useState<string | null>(book?.progress.chapterLabel ?? null);
   const [pageInfo, setPageInfo] = useState<{ page: number | null; total: number | null }>({
-    page: null,
-    total: null,
+    page: book?.progress.pdfPage ?? null,
+    total: book?.progress.pdfTotalPages ?? null,
   });
 
   // Undo accidental jump
@@ -92,10 +95,14 @@ export default function BookReaderScreen({ navigation, route }: Props) {
     epubCfi: string | null;
     percentage: number;
     chapterLabel: string | null;
+    pdfPage: number | null;
+    pdfTotalPages: number | null;
   }>({
     epubCfi: book?.progress.epubCfi ?? null,
     percentage: book?.progress.percentage ?? 0,
     chapterLabel: book?.progress.chapterLabel ?? null,
+    pdfPage: book?.progress.pdfPage ?? null,
+    pdfTotalPages: book?.progress.pdfTotalPages ?? null,
   });
 
   // ─── Bulletproof Progress Save Engine (Section 6) ──────────────────────────
@@ -108,11 +115,13 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       saveTimeoutRef.current = null;
     }
     const current = latestProgressRef.current;
-    if (current.epubCfi || current.percentage > 0) {
+    if (current.epubCfi || current.pdfPage || current.percentage > 0) {
       updateBookProgress(bookId, {
         epubCfi: current.epubCfi,
         percentage: current.percentage,
         chapterLabel: current.chapterLabel,
+        pdfPage: current.pdfPage,
+        pdfTotalPages: current.pdfTotalPages,
       }).catch((e) => console.warn("[reader] progress save error:", e));
     }
   }, [bookId, updateBookProgress]);
@@ -145,6 +154,14 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         if (cancelled) return;
         setDecryptedUri(decUri);
         setCachedLocations(locations);
+
+        if (book.type === "pdf") {
+          const b64 = await FileSystem.readAsStringAsync(decUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          if (cancelled) return;
+          setPdfBase64(b64);
+        }
       } catch (err: any) {
         if (cancelled) return;
         setLoadError(err.message || "Failed to prepare book.");
@@ -217,12 +234,39 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         const data = JSON.parse(event.nativeEvent.data);
         switch (data.type) {
           case "ready":
+          case "loaded":
             setLoading(false);
+            if (typeof data.pages === "number") {
+              setPageInfo((prev) => ({ ...prev, total: data.pages }));
+              latestProgressRef.current = {
+                ...latestProgressRef.current,
+                pdfTotalPages: data.pages,
+              };
+            }
             break;
 
           case "toggle_ui":
             setUiVisible((prev) => !prev);
             break;
+
+          case "page_changed": {
+            setLoading(false);
+            const curP = typeof data.page === "number" ? data.page : 1;
+            const totalP = typeof data.total === "number" ? data.total : (pageInfo.total || null);
+            const nextPct = typeof data.percentage === "number" ? data.percentage : (totalP ? curP / totalP : 0);
+
+            setPercentage(nextPct);
+            setPageInfo({ page: curP, total: totalP });
+
+            latestProgressRef.current = {
+              ...latestProgressRef.current,
+              pdfPage: curP,
+              pdfTotalPages: totalP,
+              percentage: nextPct,
+            };
+            scheduleDebouncedSave();
+            break;
+          }
 
           case "relocated": {
             const nextCfi = data.cfi || null;
@@ -237,6 +281,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
             }
 
             latestProgressRef.current = {
+              ...latestProgressRef.current,
               epubCfi: nextCfi,
               percentage: nextPct,
               chapterLabel: nextChapter || latestProgressRef.current.chapterLabel,
@@ -305,6 +350,14 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   // HTML source for WebView
   const htmlSource = useMemo(() => {
     if (!decryptedUri) return null;
+    if (book?.type === "pdf") {
+      if (!pdfBase64) return null;
+      return getPdfReaderHtml(
+        pdfBase64,
+        book.progress.pdfPage || 1,
+        readerSettings.theme
+      );
+    }
     return getReaderHtml(
       decryptedUri,
       false,
@@ -312,7 +365,15 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       readerSettings,
       cachedLocations
     );
-  }, [decryptedUri, book?.progress.epubCfi, readerSettings, cachedLocations]);
+  }, [
+    decryptedUri,
+    book?.type,
+    book?.progress.pdfPage,
+    book?.progress.epubCfi,
+    pdfBase64,
+    readerSettings,
+    cachedLocations,
+  ]);
 
   if (loadError) {
     return (
@@ -392,15 +453,17 @@ export default function BookReaderScreen({ navigation, route }: Props) {
           </Text>
 
           <View style={styles.headerRight}>
-            <Pressable
-              onPress={() => setTocVisible(true)}
-              hitSlop={8}
-              style={styles.iconBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Table of contents"
-            >
-              <Feather name="list" size={20} color={theme.text} />
-            </Pressable>
+            {book?.type === "epub" && (
+              <Pressable
+                onPress={() => setTocVisible(true)}
+                hitSlop={8}
+                style={styles.iconBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Table of contents"
+              >
+                <Feather name="list" size={20} color={theme.text} />
+              </Pressable>
+            )}
 
             <Pressable
               onPress={() => setSettingsVisible(true)}
@@ -566,93 +629,104 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                 })}
               </View>
 
-              {/* Font Size */}
-              <Text style={[styles.settingSectionLabel, { color: theme.text }]}>FONT SIZE</Text>
-              <View style={styles.fontSizeRow}>
-                <Pressable
-                  onPress={() => handleUpdateSettings({ fontSize: Math.max(12, readerSettings.fontSize - 1) })}
-                  style={[styles.stepperBtn, { backgroundColor: theme.bg, borderColor: theme.border }]}
-                >
-                  <Text style={[styles.stepperText, { color: theme.text }]}>A−</Text>
-                </Pressable>
-                <Text style={[styles.fontSizeDisplay, { color: theme.text }]}>{readerSettings.fontSize} pt</Text>
-                <Pressable
-                  onPress={() => handleUpdateSettings({ fontSize: Math.min(32, readerSettings.fontSize + 1) })}
-                  style={[styles.stepperBtn, { backgroundColor: theme.bg, borderColor: theme.border }]}
-                >
-                  <Text style={[styles.stepperText, { color: theme.text }]}>A+</Text>
-                </Pressable>
-              </View>
-
-              {/* Font Family */}
-              <Text style={[styles.settingSectionLabel, { color: theme.text }]}>FONT FAMILY</Text>
-              <View style={styles.fontFamilyRow}>
-                {[
-                  { label: "System", value: "system" },
-                  { label: "Serif", value: "Georgia, serif" },
-                  { label: "Sans", value: "Figtree, sans-serif" },
-                ].map((f) => {
-                  const active = readerSettings.fontFamily === f.value;
-                  return (
+              {book?.type === "epub" ? (
+                <>
+                  {/* Font Size */}
+                  <Text style={[styles.settingSectionLabel, { color: theme.text }]}>FONT SIZE</Text>
+                  <View style={styles.fontSizeRow}>
                     <Pressable
-                      key={f.value}
-                      onPress={() => handleUpdateSettings({ fontFamily: f.value })}
-                      style={[
-                        styles.chipOption,
-                        { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
-                      ]}
+                      onPress={() => handleUpdateSettings({ fontSize: Math.max(12, readerSettings.fontSize - 1) })}
+                      style={[styles.stepperBtn, { backgroundColor: theme.bg, borderColor: theme.border }]}
                     >
-                      <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
-                        {f.label}
-                      </Text>
+                      <Text style={[styles.stepperText, { color: theme.text }]}>A−</Text>
                     </Pressable>
-                  );
-                })}
-              </View>
-
-              {/* Margins */}
-              <Text style={[styles.settingSectionLabel, { color: theme.text }]}>MARGINS</Text>
-              <View style={styles.fontFamilyRow}>
-                {(["small", "medium", "large"] as ReaderMargin[]).map((m) => {
-                  const active = readerSettings.margin === m;
-                  return (
+                    <Text style={[styles.fontSizeDisplay, { color: theme.text }]}>{readerSettings.fontSize} pt</Text>
                     <Pressable
-                      key={m}
-                      onPress={() => handleUpdateSettings({ margin: m })}
-                      style={[
-                        styles.chipOption,
-                        { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
-                      ]}
+                      onPress={() => handleUpdateSettings({ fontSize: Math.min(32, readerSettings.fontSize + 1) })}
+                      style={[styles.stepperBtn, { backgroundColor: theme.bg, borderColor: theme.border }]}
                     >
-                      <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
-                        {m === "small" ? "Small" : m === "medium" ? "Medium" : "Large"}
-                      </Text>
+                      <Text style={[styles.stepperText, { color: theme.text }]}>A+</Text>
                     </Pressable>
-                  );
-                })}
-              </View>
+                  </View>
 
-              {/* Text Alignment */}
-              <Text style={[styles.settingSectionLabel, { color: theme.text }]}>ALIGNMENT</Text>
-              <View style={styles.fontFamilyRow}>
-                {(["left", "justify"] as ReaderTextAlign[]).map((a) => {
-                  const active = readerSettings.textAlign === a;
-                  return (
-                    <Pressable
-                      key={a}
-                      onPress={() => handleUpdateSettings({ textAlign: a })}
-                      style={[
-                        styles.chipOption,
-                        { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
-                      ]}
-                    >
-                      <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
-                        {a === "left" ? "Left Align" : "Justify"}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+                  {/* Font Family */}
+                  <Text style={[styles.settingSectionLabel, { color: theme.text }]}>FONT FAMILY</Text>
+                  <View style={styles.fontFamilyRow}>
+                    {[
+                      { label: "System", value: "system" },
+                      { label: "Serif", value: "Georgia, serif" },
+                      { label: "Sans", value: "Figtree, sans-serif" },
+                    ].map((f) => {
+                      const active = readerSettings.fontFamily === f.value;
+                      return (
+                        <Pressable
+                          key={f.value}
+                          onPress={() => handleUpdateSettings({ fontFamily: f.value })}
+                          style={[
+                            styles.chipOption,
+                            { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
+                          ]}
+                        >
+                          <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
+                            {f.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Margins */}
+                  <Text style={[styles.settingSectionLabel, { color: theme.text }]}>MARGINS</Text>
+                  <View style={styles.fontFamilyRow}>
+                    {(["small", "medium", "large"] as ReaderMargin[]).map((m) => {
+                      const active = readerSettings.margin === m;
+                      return (
+                        <Pressable
+                          key={m}
+                          onPress={() => handleUpdateSettings({ margin: m })}
+                          style={[
+                            styles.chipOption,
+                            { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
+                          ]}
+                        >
+                          <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
+                            {m === "small" ? "Small" : m === "medium" ? "Medium" : "Large"}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Text Alignment */}
+                  <Text style={[styles.settingSectionLabel, { color: theme.text }]}>ALIGNMENT</Text>
+                  <View style={styles.fontFamilyRow}>
+                    {(["left", "justify"] as ReaderTextAlign[]).map((a) => {
+                      const active = readerSettings.textAlign === a;
+                      return (
+                        <Pressable
+                          key={a}
+                          onPress={() => handleUpdateSettings({ textAlign: a })}
+                          style={[
+                            styles.chipOption,
+                            { backgroundColor: active ? colors.primary : theme.bg, borderColor: theme.border },
+                          ]}
+                        >
+                          <Text style={[styles.chipOptionText, { color: active ? colors.onPrimary : theme.text }]}>
+                            {a === "left" ? "Left Align" : "Justify"}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : (
+                <View style={[styles.pdfNoteBox, { backgroundColor: theme.headerBg, borderColor: theme.border }]}>
+                  <Feather name="info" size={15} color={colors.primary} />
+                  <Text style={[styles.pdfNoteText, { color: theme.text }]}>
+                    Fixed-layout PDF document. Theme and brightness adjustments apply.
+                  </Text>
+                </View>
+              )}
 
               {/* Brightness Controls */}
               <Text style={[styles.settingSectionLabel, { color: theme.text }]}>SCREEN BRIGHTNESS</Text>
@@ -956,5 +1030,20 @@ const styles = StyleSheet.create({
   brightnessRow: {
     flexDirection: "row",
     gap: 8,
+  },
+  pdfNoteBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginVertical: 12,
+  },
+  pdfNoteText: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

@@ -484,7 +484,7 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
 
                 <Pressable
                   onPress={() => {
-                    if (continueBook.type === "epub") {
+                    if (continueBook.type === "epub" || continueBook.type === "pdf") {
                       navigation.navigate("BookReader", { bookId: continueBook.id });
                     } else {
                       navigation.navigate("BookDetail", { bookId: continueBook.id });
