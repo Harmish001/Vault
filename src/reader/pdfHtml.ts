@@ -3,7 +3,8 @@ import { ReaderTheme } from "../types";
 import { THEME_PALETTES } from "./readerHtml";
 
 export function getPdfReaderHtml(
-  pdfBase64: string,
+  pdfUriOrBase64: string,
+  isBase64: boolean,
   initialPage: number,
   themeName: ReaderTheme
 ): string {
@@ -89,7 +90,8 @@ export function getPdfReaderHtml(
         } catch (e) {}
       };
 
-      var rawB64 = ${JSON.stringify(pdfBase64)};
+      var pdfSource = ${JSON.stringify(pdfUriOrBase64)};
+      var isB64 = ${isBase64 ? "true" : "false"};
       var curPage = ${Math.max(1, initialPage || 1)};
       var pdfDoc = null;
       var totalPages = 0;
@@ -99,6 +101,18 @@ export function getPdfReaderHtml(
       var canvas = document.getElementById("pdf-canvas");
       var ctx = canvas.getContext("2d");
       var loadingEl = document.getElementById("loading");
+
+      function onPdfLoaded(pdf) {
+        pdfDoc = pdf;
+        totalPages = pdf.numPages;
+        post({ type: "loaded", pages: totalPages });
+        renderPage(curPage);
+      }
+
+      function onPdfError(err) {
+        if (loadingEl) loadingEl.textContent = "Could not parse PDF: " + (err && err.message ? err.message : "");
+        post({ type: "error", message: (err && err.message) || "Could not parse PDF" });
+      }
 
       function renderPage(num) {
         if (!pdfDoc) return;
@@ -152,26 +166,48 @@ export function getPdfReaderHtml(
           });
         }).catch(function(err) {
           rendering = false;
-          post({ type: "error", message: err.message || "Failed to render page" });
+          onPdfError(err);
         });
       }
 
       try {
-        var raw = atob(rawB64);
-        var buf = new Uint8Array(raw.length);
-        for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
-
-        pdfjsLib.getDocument({ data: buf }).promise.then(function(pdf) {
-          pdfDoc = pdf;
-          totalPages = pdf.numPages;
-          post({ type: "loaded", pages: totalPages });
-          renderPage(curPage);
-        }).catch(function(err) {
-          if (loadingEl) loadingEl.textContent = "Could not parse PDF.";
-          post({ type: "error", message: err.message || "Could not parse PDF" });
-        });
+        if (isB64) {
+          var raw = atob(pdfSource);
+          var buf = new Uint8Array(raw.length);
+          for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+          pdfjsLib.getDocument({ data: buf }).promise.then(onPdfLoaded).catch(onPdfError);
+        } else {
+          // Direct file URI streaming via native Chromium network layer (0 Java/JS bridge memory)
+          var urlParam = {
+            url: pdfSource,
+            cMapPacked: true,
+            disableAutoFetch: false,
+            disableStream: false
+          };
+          pdfjsLib.getDocument(urlParam).promise.then(onPdfLoaded).catch(function(urlErr) {
+            console.warn("Direct URL load failed, trying XHR ArrayBuffer fallback:", urlErr);
+            try {
+              var xhr = new XMLHttpRequest();
+              xhr.open("GET", pdfSource, true);
+              xhr.responseType = "arraybuffer";
+              xhr.onload = function() {
+                if ((xhr.status === 200 || xhr.status === 0) && xhr.response) {
+                  pdfjsLib.getDocument({ data: new Uint8Array(xhr.response) }).promise.then(onPdfLoaded).catch(onPdfError);
+                } else {
+                  onPdfError(urlErr);
+                }
+              };
+              xhr.onerror = function() {
+                onPdfError(urlErr);
+              };
+              xhr.send();
+            } catch (xhrEx) {
+              onPdfError(urlErr);
+            }
+          });
+        }
       } catch (e) {
-        post({ type: "error", message: e.message || "Init failed" });
+        onPdfError(e);
       }
 
       // Tap zones: left 30% prev, right 30% next, center 40% toggle UI

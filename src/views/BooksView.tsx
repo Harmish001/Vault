@@ -143,27 +143,35 @@ export default function BooksView({ navigation }: Props) {
 
       if (isEpub) {
         try {
-          const rawBytes = await readRawBytes(asset.uri);
-          const meta = await parseEpub(rawBytes, title);
-          title = meta.title || title;
-          author = meta.author || null;
+          const fileInfo = await FileSystem.getInfoAsync(asset.uri);
+          const fileSize = fileInfo.exists && "size" in fileInfo ? (fileInfo.size as number) : (asset.size ?? 0);
+          // Only parse metadata in JS if file is under 15MB to prevent OutOfMemory on huge graphic EPUBs
+          if (fileSize < 15 * 1024 * 1024) {
+            const rawBytes = await readRawBytes(asset.uri);
+            const meta = await parseEpub(rawBytes, title);
+            title = meta.title || title;
+            author = meta.author || null;
 
-          if (meta.coverBase64) {
-            await FileSystem.makeDirectoryAsync(COVERS_DIR, { intermediates: true });
-            const savedCoverPath = `${COVERS_DIR}cover_${uid()}.jpg`;
-            await FileSystem.writeAsStringAsync(savedCoverPath, meta.coverBase64, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            coverPath = savedCoverPath;
+            if (meta.coverBase64) {
+              await FileSystem.makeDirectoryAsync(COVERS_DIR, { intermediates: true });
+              const savedCoverPath = `${COVERS_DIR}cover_${uid()}.jpg`;
+              await FileSystem.writeAsStringAsync(savedCoverPath, meta.coverBase64, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              coverPath = savedCoverPath;
+            }
           }
         } catch (err: any) {
-          setImporting(false);
-          Alert.alert("Could not open book", err.message || DRM_ERROR_MESSAGE);
-          return;
+          if (err.message === DRM_ERROR_MESSAGE) {
+            setImporting(false);
+            Alert.alert("Could not open book", DRM_ERROR_MESSAGE);
+            return;
+          }
+          console.warn("[BooksView] Metadata extraction skipped:", err);
         }
       }
 
-      // Store file encrypted into vault
+      // Store file into vault private books directory
       const stored = await importBookFile(asset.uri, name);
 
       const created = await createBook({

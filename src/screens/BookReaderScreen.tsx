@@ -63,7 +63,6 @@ export default function BookReaderScreen({ navigation, route }: Props) {
 
   // State
   const [decryptedUri, setDecryptedUri] = useState<string | null>(null);
-  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [cachedLocations, setCachedLocations] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -154,14 +153,6 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         if (cancelled) return;
         setDecryptedUri(decUri);
         setCachedLocations(locations);
-
-        if (book.type === "pdf") {
-          const b64 = await FileSystem.readAsStringAsync(decUri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          if (cancelled) return;
-          setPdfBase64(b64);
-        }
       } catch (err: any) {
         if (cancelled) return;
         setLoadError(err.message || "Failed to prepare book.");
@@ -351,9 +342,9 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const htmlSource = useMemo(() => {
     if (!decryptedUri) return null;
     if (book?.type === "pdf") {
-      if (!pdfBase64) return null;
       return getPdfReaderHtml(
-        pdfBase64,
+        decryptedUri,
+        false,
         book.progress.pdfPage || 1,
         readerSettings.theme
       );
@@ -370,7 +361,6 @@ export default function BookReaderScreen({ navigation, route }: Props) {
     book?.type,
     book?.progress.pdfPage,
     book?.progress.epubCfi,
-    pdfBase64,
     readerSettings,
     cachedLocations,
   ]);
