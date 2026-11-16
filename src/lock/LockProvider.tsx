@@ -26,6 +26,7 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   const leftAt = useRef<number | null>(null);
   const busy = useRef(false);
   const external = useRef(0);
+  const lastUnlockedAt = useRef<number>(0);
 
   const runExternal = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
     external.current++;
@@ -47,6 +48,8 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
       if (level === LocalAuthentication.SecurityLevel.NONE) {
         // No fingerprint, PIN, pattern or password on the phone: nothing to check against.
         setNoDeviceLock(true);
+        lastUnlockedAt.current = Date.now();
+        leftAt.current = null;
         setLocked(false);
         return;
       }
@@ -55,11 +58,18 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
         promptMessage: "Unlock DocVault",
         disableDeviceFallback: false, // allows the phone's PIN / pattern, not only biometrics
       });
-      if (res.success) setLocked(false);
+      if (res.success) {
+        lastUnlockedAt.current = Date.now();
+        leftAt.current = null;
+        setLocked(false);
+      }
     } catch {
       // stay locked; the Unlock button lets the person retry
     } finally {
-      busy.current = false;
+      // Keep guard briefly so the immediate "active" transition from biometric dialog dismissal doesn't re-lock
+      setTimeout(() => {
+        busy.current = false;
+      }, 800);
     }
   }, []);
 
@@ -81,6 +91,11 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
         if (!busy.current && external.current === 0) leftAt.current = Date.now();
       } else if (state === "active") {
         if (busy.current || external.current > 0) return; // returning from our own system screen
+        // Suppress re-locking if just authenticated (prevent biometric dismiss race)
+        if (Date.now() - lastUnlockedAt.current < 2500) {
+          leftAt.current = null;
+          return;
+        }
         const away = leftAt.current;
         leftAt.current = null;
         if (settings.lockEnabled && away !== null && Date.now() - away > settings.lockAfterSec * 1000) {
@@ -106,14 +121,8 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   return (
     <LockContext.Provider value={{ locked, noDeviceLock, runExternal, relockDue }}>
       {children}
-      <Modal
-        visible={locked}
-        animationType="none"
-        statusBarTranslucent
-        navigationBarTranslucent
-        onRequestClose={() => undefined}
-      >
-        <View style={styles.overlay}>
+      {locked ? (
+        <View style={styles.overlay} pointerEvents="auto">
           <Image source={require("../../assets/logo-mark.png")} style={styles.logo} />
           <Text style={styles.title}>DocVault</Text>
           <Text style={styles.sub}>Your documents are locked.</Text>
@@ -121,18 +130,20 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
             <Text style={styles.buttonText}>Unlock</Text>
           </Pressable>
         </View>
-      </Modal>
+      ) : null}
     </LockContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.primaryDark,
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
+    zIndex: 99999,
+    elevation: 99999,
   },
   logo: { width: 96, height: 96, borderRadius: 22, marginBottom: 20 },
   title: { fontFamily: fonts.title, fontSize: 32, color: colors.onPrimary },

@@ -192,3 +192,4 @@ export async function parseEpub(bytes: Uint8Array, fallbackTitle = "Untitled Boo
     coverMime,
   };
 }
+

@@ -490,10 +490,11 @@ export default function BooksView({ navigation }: Props) {
       </ScrollView>
 
       {/* Floating Action Button */}
-      <FabBar bottomOffset={18} withNavBar>
+      <FabBar bottomOffset={84}>
         <Pill
           icon="plus"
-          label={importing ? "Importing…" : "Import Book"}
+          label={importing ? "Importing…" : "Import book"}
+          tone="dark"
           onPress={handlePickBook}
           disabled={importing}
         />

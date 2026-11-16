@@ -99,6 +99,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     if (!hasShareIntent || cur === "ShareChooser" || cur === "Save" || cur === "ReminderEdit") return;
     const shared = shareIntent.files ?? [];
     const text = shareIntent.text || shareIntent.webUrl || "";
+    if (!shared.length && !text) return;
     if (!shared.length && text) {
       navRef.navigate("ReminderEdit", { draft: { result: parseBill(text), source: "share-text", sourceText: text } });
     } else if (shared.length && !shared.some(isSharedImage)) {

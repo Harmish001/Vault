@@ -2,7 +2,7 @@
  * Instant Search: Global search overlay accessible from anywhere.
  * Shows files, notes, folders with inline copy for field values.
  */
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
   Modal,
@@ -29,6 +29,7 @@ type Props = {
   onOpenFile: (fileId: string) => void;
   onOpenFolder: (folderId: string) => void;
   onOpenNote: (noteId: string) => void;
+  onOpenBook?: (bookId: string) => void;
 };
 
 export default function InstantSearch({
@@ -37,24 +38,36 @@ export default function InstantSearch({
   onOpenFile,
   onOpenFolder,
   onOpenNote,
+  onOpenBook,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { files, folders, notes, fileUri } = useVault();
+  const { files, folders, notes, books, fileUri } = useVault();
   const { copyValue } = useQuickCopy();
   const [query, setQuery] = useState("");
   const inputRef = useRef<TextInput>(null);
 
-  // Focus input when modal opens
+  // Directly open native keyboard with retry timers when modal opens
+  useEffect(() => {
+    if (visible) {
+      const timers = [
+        setTimeout(() => inputRef.current?.focus(), 50),
+        setTimeout(() => inputRef.current?.focus(), 180),
+        setTimeout(() => inputRef.current?.focus(), 350),
+      ];
+      return () => timers.forEach(clearTimeout);
+    } else {
+      setQuery("");
+    }
+  }, [visible]);
+
   const handleShow = () => {
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 100);
+    inputRef.current?.focus();
   };
 
   const q = query.trim().toLowerCase();
 
   const results = useMemo(() => {
-    if (!q || q.length < 2) return null;
+    if (!q) return null;
 
     // Search files with field values
     const matchedFiles = files.filter((f) => {
@@ -70,13 +83,21 @@ export default function InstantSearch({
       (n) => n.title.toLowerCase().includes(q) || (!n.isSecret && n.content.toLowerCase().includes(q))
     );
 
+    // Search books
+    const matchedBooks = (books ?? []).filter(
+      (b) =>
+        b.title.toLowerCase().includes(q) ||
+        (b.author && b.author.toLowerCase().includes(q))
+    );
+
     return {
       files: matchedFiles.slice(0, 8),
       folders: matchedFolders.slice(0, 4),
       notes: matchedNotes.slice(0, 4),
-      total: matchedFiles.length + matchedFolders.length + matchedNotes.length,
+      books: matchedBooks.slice(0, 4),
+      total: matchedFiles.length + matchedFolders.length + matchedNotes.length + matchedBooks.length,
     };
-  }, [q, files, folders, notes]);
+  }, [q, files, folders, notes, books]);
 
   function handleCopyField(label: string, value: string, fileId: string) {
     copyValue(label, value, fileId, "file");
@@ -107,6 +128,7 @@ export default function InstantSearch({
               placeholderTextColor={colors.muted}
               style={styles.searchInput}
               autoFocus
+              showSoftInputOnFocus={true}
               returnKeyType="search"
               autoCapitalize="none"
               autoCorrect={false}
@@ -271,6 +293,41 @@ export default function InstantSearch({
                       <Text style={styles.resultSub} numberOfLines={1}>
                         {n.isSecret ? "Secure note" : n.content.slice(0, 50)}
                       </Text>
+                    </View>
+                    <Feather name="chevron-right" size={18} color={colors.muted} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {results && results.books && results.books.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Books ({results.books.length})</Text>
+                {results.books.map((b) => (
+                  <Pressable
+                    key={b.id}
+                    onPress={() => {
+                      onClose();
+                      onOpenBook?.(b.id);
+                    }}
+                    style={({ pressed }) => [
+                      styles.resultRow,
+                      styles.resultCard,
+                      pressed && { backgroundColor: colors.surfaceAlt },
+                    ]}
+                  >
+                    <View style={[styles.folderIcon, { backgroundColor: colors.primarySoft }]}>
+                      <Feather name="book" size={18} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.resultName} numberOfLines={1}>
+                        {b.title}
+                      </Text>
+                      {b.author ? (
+                        <Text style={styles.resultSub} numberOfLines={1}>
+                          {b.author}
+                        </Text>
+                      ) : null}
                     </View>
                     <Feather name="chevron-right" size={18} color={colors.muted} />
                   </Pressable>

@@ -103,6 +103,7 @@ export default function HomeScreen({
         onOpenFile={(id) => navigation.navigate("FileDetails", { fileId: id })}
         onOpenFolder={(id) => navigation.navigate("Folder", { id })}
         onOpenNote={(id) => navigation.navigate("NoteEdit", { id })}
+        onOpenBook={(id) => navigation.navigate("BookReader", { bookId: id })}
       />
     </View>
   );
