@@ -124,14 +124,17 @@ async function runTests() {
 
   // Test 5: PDF reader HTML generation
   const dummyPdfB64 = Buffer.from("%PDF-1.4 test").toString("base64");
-  const htmlLight = getPdfReaderHtml(dummyPdfB64, 5, "light");
-  assert.ok(htmlLight.includes("pdfjsLib"), "PDF HTML includes pdfjsLib");
-  assert.ok(htmlLight.includes(dummyPdfB64), "PDF HTML includes base64 payload");
-  assert.ok(htmlLight.includes("curPage = 5"), "PDF HTML sets initial page");
+  const htmlBase64 = getPdfReaderHtml(dummyPdfB64, true, 5, "light");
+  assert.ok(htmlBase64.includes("pdfjsLib"), "PDF HTML includes pdfjsLib");
+  assert.ok(htmlBase64.includes(dummyPdfB64), "PDF HTML includes base64 payload when isBase64=true");
+  assert.ok(htmlBase64.includes("curPage = 5"), "PDF HTML sets initial page");
 
-  const htmlDark = getPdfReaderHtml(dummyPdfB64, 1, "dark");
-  assert.ok(htmlDark.includes("filter: invert"), "Dark theme applies canvas invert filter");
-  console.log("ok - Offline PDF HTML template generator and theme filters");
+  const dummyPdfUri = "file:///data/user/0/com.docvault/files/books/book_123.pdf";
+  const htmlUri = getPdfReaderHtml(dummyPdfUri, false, 3, "dark");
+  assert.ok(htmlUri.includes("pdfjsLib"), "PDF HTML includes pdfjsLib");
+  assert.ok(htmlUri.includes(dummyPdfUri), "PDF HTML includes direct file URL for fast streaming without OOM");
+  assert.ok(htmlUri.includes("filter: invert"), "Dark theme applies canvas invert filter");
+  console.log("ok - Offline PDF HTML template generator (streaming file URI & base64)");
 
   console.log("All books and reader tests passed successfully!");
 }

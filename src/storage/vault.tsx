@@ -44,6 +44,7 @@ const ROOT = DOC + "vault/";
 const FILES_DIR = ROOT + "files/";
 const LOCATIONS_DIR = ROOT + "locations/";
 export const COVERS_DIR = ROOT + "covers/";
+export const BOOKS_DIR = ROOT + "books/";
 // The real index is encrypted and lives OUTSIDE vault/, so backups never pick it up.
 const INDEX_ENC = DOC + "vault.enc";
 const INDEX_ENC_TMP = DOC + "vault.enc.tmp";
@@ -164,6 +165,7 @@ function unreadable(key: Uint8Array | null, reason: string): Loaded {
  */
 async function loadVault(): Promise<Loaded> {
   await FileSystem.makeDirectoryAsync(FILES_DIR, { intermediates: true });
+  await FileSystem.makeDirectoryAsync(BOOKS_DIR, { intermediates: true });
   const encExists = (await exists(INDEX_ENC)) || (await exists(INDEX_ENC_TMP));
 
   let key: Uint8Array | null;
@@ -634,6 +636,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     mutate(async (cur) => {
       const doomed = (cur.books ?? []).find((b) => b.id === id);
       if (doomed?.filePath) {
+        await FileSystem.deleteAsync(BOOKS_DIR + doomed.filePath, { idempotent: true });
         await FileSystem.deleteAsync(FILES_DIR + doomed.filePath, { idempotent: true });
       }
       if (doomed?.coverPath) {
@@ -752,24 +755,44 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   };
 
   const importBookFile: Ctx["importBookFile"] = async (pickedUri, originalName) => {
-    const key = keyRef.current;
-    if (!key) throw new Error("Vault is locked");
-    await FileSystem.makeDirectoryAsync(FILES_DIR, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(BOOKS_DIR, { intermediates: true });
     const ext = extOf(originalName) || ".epub";
     const storedAs = `book_${uid()}${ext}`;
-    const dest = FILES_DIR + storedAs;
-    const nonce = randomNonce();
-    await storeEncryptedFile(key, pickedUri, dest, nonce);
+    const dest = BOOKS_DIR + storedAs;
+    // High-speed native OS file copy - zero JS/Java bridge memory, instant even for 100MB+ books
+    await FileSystem.copyAsync({ from: pickedUri, to: dest });
     const info = await FileSystem.getInfoAsync(dest);
     return { filePath: storedAs, size: info.exists && "size" in info ? (info.size as number) : 0 };
   };
 
   const getBookDecryptedUri = useCallback(async (filePath: string): Promise<string> => {
+    const inBooksDir = BOOKS_DIR + filePath;
+    const inFilesDir = FILES_DIR + filePath;
+    const targetPath = (await exists(inBooksDir)) ? inBooksDir : inFilesDir;
+
+    // Check if the file is encrypted (read first 16 bytes magic header)
+    try {
+      const headerSnippet = await FileSystem.readAsStringAsync(targetPath, {
+        position: 0,
+        length: 16,
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      // 'RFZGMQ==' is base64 for 'DVF1'
+      const isEncrypted = headerSnippet.startsWith("RFZGMQ");
+      if (!isEncrypted) {
+        // Plain file: return immediately without copying or decrypting
+        return targetPath;
+      }
+    } catch {
+      return targetPath;
+    }
+
+    // Legacy encrypted book: decrypt on demand to ephemeral directory
     const key = keyRef.current;
     if (!key) throw new Error("Vault is locked");
     await FileSystem.makeDirectoryAsync(EPHEMERAL_DIR, { intermediates: true });
     const ephemeralPath = EPHEMERAL_DIR + safeName(filePath);
-    return await ensureDecryptedCopy(key, FILES_DIR + filePath, ephemeralPath);
+    return await ensureDecryptedCopy(key, targetPath, ephemeralPath);
   }, []);
 
   const renameFile: Ctx["renameFile"] = (id, name) =>
