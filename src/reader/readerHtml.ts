@@ -242,6 +242,20 @@ export function getReaderHtml(
             rendition.display().then(hideLoading).catch(hideLoading);
           });
 
+        // Text selection event for quoting / highlighting
+        rendition.on("selected", function(cfiRange, contents) {
+          try {
+            var text = rendition.getRange(cfiRange).toString();
+            if (text && text.trim().length > 0) {
+              post({
+                type: "text_selected",
+                cfiRange: cfiRange,
+                text: text.trim()
+              });
+            }
+          } catch (e) {}
+        });
+
         // Relocated event
         rendition.on("relocated", function(location) {
           if (!location || !location.start) return;
@@ -338,6 +352,30 @@ export function getReaderHtml(
           case "load_locations":
             if (data.locations && book) {
               book.locations.load(data.locations);
+            }
+            break;
+          case "extract_page_text":
+            try {
+              var contents = rendition.getContents();
+              var text = "";
+              if (contents && contents[0] && contents[0].document) {
+                text = contents[0].document.body ? contents[0].document.body.innerText || "" : "";
+              }
+              post({
+                type: "page_text_extracted",
+                page: null,
+                text: text.slice(0, 2000).trim(),
+                imageData: null
+              });
+            } catch (e) {
+              post({ type: "page_text_extracted", page: null, text: "", imageData: null });
+            }
+            break;
+          case "highlight":
+            if (data.cfiRange) {
+              try {
+                rendition.annotations.highlight(data.cfiRange, {}, function(e) {}, "", { fill: data.color || "#F9E076" });
+              } catch (e) {}
             }
             break;
         }

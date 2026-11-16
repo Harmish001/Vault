@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   AppStateStatus,
   BackHandler,
@@ -9,6 +10,8 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
+  ToastAndroid,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -24,9 +27,10 @@ import { RootStackParamList } from "../navigation";
 import * as FileSystem from "expo-file-system/legacy";
 import { useVault } from "../storage/vault";
 import { colors, fonts, radius } from "../theme";
-import { BookProgress, ReaderMargin, ReaderSettings, ReaderTextAlign, ReaderTheme } from "../types";
+import { BookProgress, QuoteColor, ReaderMargin, ReaderSettings, ReaderTextAlign, ReaderTheme } from "../types";
 import { getReaderHtml, THEME_PALETTES } from "../reader/readerHtml";
 import { getPdfReaderHtml } from "../reader/pdfHtml";
+import { ocrSupported, readPageText } from "../ocr/read";
 
 type Props = NativeStackScreenProps<RootStackParamList, "BookReader">;
 
@@ -35,6 +39,13 @@ type TocItem = {
   href: string;
   label: string;
   subitems?: TocItem[];
+};
+
+export const QUOTE_COLORS: Record<QuoteColor, { name: string; hex: string; bg: string }> = {
+  yellow: { name: "Yellow", hex: "#E5A800", bg: "#FEF7D6" },
+  green: { name: "Green", hex: "#1EA755", bg: "#E2F7E9" },
+  blue: { name: "Blue", hex: "#2678D0", bg: "#E5F0FC" },
+  pink: { name: "Pink", hex: "#D83E7F", bg: "#FCE7F1" },
 };
 
 export default function BookReaderScreen({ navigation, route }: Props) {
@@ -47,6 +58,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
     getBookDecryptedUri,
     loadBookLocations,
     saveBookLocations,
+    createQuote,
   } = useVault();
 
   const insets = useSafeAreaInsets();
@@ -71,6 +83,15 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [tocList, setTocList] = useState<TocItem[]>([]);
   const [brightnessVal, setBrightnessVal] = useState<number | null>(readerSettings.brightness ?? null);
+
+  // Note / Quote capture state
+  const [noteModalVisible, setNoteModalVisible] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [noteUserComment, setNoteUserComment] = useState("");
+  const [noteColor, setNoteColor] = useState<QuoteColor>("yellow");
+  const [ocrRunning, setOcrRunning] = useState(false);
+  const lastPageImageDataRef = useRef<string | null>(null);
+  const selectedCfiRangeRef = useRef<string | null>(null);
 
   // Current reading position
   const [currentCfi, setCurrentCfi] = useState<string | null>(book?.progress.epubCfi ?? null);
@@ -297,6 +318,21 @@ export default function BookReaderScreen({ navigation, route }: Props) {
             }
             break;
 
+          case "page_text_extracted":
+            lastPageImageDataRef.current = data.imageData || null;
+            if (data.text) {
+              setNoteText((prev) => (prev ? prev : data.text));
+            }
+            break;
+
+          case "text_selected":
+            selectedCfiRangeRef.current = data.cfiRange || null;
+            if (data.text) {
+              setNoteText(data.text);
+              setNoteModalVisible(true);
+            }
+            break;
+
           case "error":
             setLoadError(data.message || "Reader error");
             setLoading(false);
@@ -336,6 +372,86 @@ export default function BookReaderScreen({ navigation, route }: Props) {
     const updated = { ...readerSettings, ...patch };
     updateReaderSettings(patch);
     sendToWebview("update_settings", { settings: updated });
+  };
+
+  // Open Note / Quote capture
+  const handleOpenNoteCapture = () => {
+    setNoteModalVisible(true);
+    sendToWebview("extract_page_text");
+  };
+
+  // Run on-device OCR on page image
+  const handleRunOcr = async () => {
+    if (!lastPageImageDataRef.current) {
+      Alert.alert("No page image", "Current page image is not available for OCR.");
+      return;
+    }
+    if (!ocrSupported) {
+      Alert.alert("OCR unavailable", "On-device OCR is not supported on this device.");
+      return;
+    }
+    setOcrRunning(true);
+    try {
+      const tempUri = `${FileSystem.cacheDirectory}ocr_page_${Date.now()}.jpg`;
+      const b64 = lastPageImageDataRef.current.replace(/^data:image\/\w+;base64,/, "");
+      await FileSystem.writeAsStringAsync(tempUri, b64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const recognized = await readPageText(tempUri);
+      await FileSystem.deleteAsync(tempUri, { idempotent: true });
+      if (recognized && recognized.trim()) {
+        setNoteText(recognized.trim());
+        ToastAndroid.show("Text extracted via OCR", ToastAndroid.SHORT);
+      } else {
+        Alert.alert("No text found", "Could not detect clear text on this page.");
+      }
+    } catch (err: any) {
+      Alert.alert("OCR error", err.message || "Failed to run OCR on page image.");
+    } finally {
+      setOcrRunning(false);
+    }
+  };
+
+  // Save Note / Quote
+  const handleSaveNote = async () => {
+    const cleanText = noteText.trim();
+    const cleanComment = noteUserComment.trim();
+    if (!cleanText && !cleanComment) {
+      Alert.alert("Empty note", "Please highlight, extract, or type text to save.");
+      return;
+    }
+    try {
+      const isPdf = book?.type === "pdf";
+      const pageLabel = isPdf
+        ? `Page ${pageInfo.page || 1}`
+        : (chapterLabel || (book?.title ? `${book.title}` : "Note"));
+
+      await createQuote({
+        bookId,
+        text: cleanText || cleanComment,
+        color: noteColor,
+        userNote: cleanComment || null,
+        pdfPage: isPdf ? (pageInfo.page || 1) : null,
+        epubCfiRange: !isPdf ? selectedCfiRangeRef.current : null,
+        pageLabel,
+        source: "reader",
+      });
+
+      if (!isPdf && selectedCfiRangeRef.current) {
+        sendToWebview("highlight", {
+          cfiRange: selectedCfiRangeRef.current,
+          color: QUOTE_COLORS[noteColor].hex,
+        });
+      }
+
+      ToastAndroid.show("Note saved to book", ToastAndroid.SHORT);
+      setNoteModalVisible(false);
+      setNoteText("");
+      setNoteUserComment("");
+      selectedCfiRangeRef.current = null;
+    } catch (err: any) {
+      Alert.alert("Could not save note", err.message || "Failed to save note.");
+    }
   };
 
   // HTML source for WebView
@@ -443,6 +559,16 @@ export default function BookReaderScreen({ navigation, route }: Props) {
           </Text>
 
           <View style={styles.headerRight}>
+            <Pressable
+              onPress={handleOpenNoteCapture}
+              hitSlop={8}
+              style={styles.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Take note or capture quote"
+            >
+              <Feather name="edit-3" size={20} color={theme.text} />
+            </Pressable>
+
             {book?.type === "epub" && (
               <Pressable
                 onPress={() => setTocVisible(true)}
@@ -763,6 +889,139 @@ export default function BookReaderScreen({ navigation, route }: Props) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Note / Quote Capture Sheet */}
+      <Modal
+        visible={noteModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNoteModalVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setNoteModalVisible(false)}>
+          <Pressable
+            style={[styles.noteSheetContainer, { backgroundColor: theme.bg, borderColor: theme.border }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={[styles.sheetHeader, { borderBottomColor: theme.border }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetTitle, { color: theme.text }]}>Add Note / Quote</Text>
+                <Text style={[styles.noteSubLabel, { color: theme.text }]} numberOfLines={1}>
+                  {book?.type === "pdf"
+                    ? `Page ${pageInfo.page || 1}`
+                    : (chapterLabel || book?.title || "Note")}
+                </Text>
+              </View>
+              <Pressable onPress={() => setNoteModalVisible(false)} hitSlop={8}>
+                <Feather name="x" size={20} color={theme.text} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.noteSheetScroll} keyboardShouldPersistTaps="handled">
+              {/* Highlight / Quote Text Section */}
+              <View style={styles.noteSectionHeaderRow}>
+                <Text style={[styles.settingSectionLabel, { color: theme.text }]}>QUOTE / EXTRACTED TEXT</Text>
+                {book?.type === "pdf" && (
+                  <Pressable
+                    onPress={handleRunOcr}
+                    disabled={ocrRunning}
+                    style={[styles.ocrBtn, { borderColor: theme.border }]}
+                  >
+                    {ocrRunning ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <>
+                        <Feather name="camera" size={13} color={colors.primary} />
+                        <Text style={styles.ocrBtnText}>Run OCR</Text>
+                      </>
+                    )}
+                  </Pressable>
+                )}
+              </View>
+
+              <TextInput
+                value={noteText}
+                onChangeText={setNoteText}
+                placeholder={book?.type === "pdf" ? "Extracted page text or enter quote..." : "Enter or paste quote text..."}
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={4}
+                style={[
+                  styles.noteTextInput,
+                  {
+                    color: theme.text,
+                    backgroundColor: theme.headerBg,
+                    borderColor: theme.border,
+                  },
+                ]}
+              />
+
+              {/* Color Selector */}
+              <Text style={[styles.settingSectionLabel, { color: theme.text, marginTop: 14 }]}>
+                HIGHLIGHT COLOR
+              </Text>
+              <View style={styles.colorPillsRow}>
+                {(["yellow", "green", "blue", "pink"] as QuoteColor[]).map((c) => {
+                  const active = noteColor === c;
+                  const col = QUOTE_COLORS[c];
+                  return (
+                    <Pressable
+                      key={c}
+                      onPress={() => setNoteColor(c)}
+                      style={[
+                        styles.colorPill,
+                        { backgroundColor: col.bg, borderColor: active ? col.hex : theme.border },
+                        active && { borderWidth: 2 },
+                      ]}
+                    >
+                      <View style={[styles.colorDotInner, { backgroundColor: col.hex }]} />
+                      <Text style={[styles.colorPillText, { color: col.hex, fontWeight: active ? "700" : "500" }]}>
+                        {col.name}
+                      </Text>
+                      {active && <Feather name="check" size={14} color={col.hex} />}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Personal Reflection Note */}
+              <Text style={[styles.settingSectionLabel, { color: theme.text, marginTop: 14 }]}>
+                YOUR NOTE (OPTIONAL)
+              </Text>
+              <TextInput
+                value={noteUserComment}
+                onChangeText={setNoteUserComment}
+                placeholder="Add thoughts, reflections, or keywords..."
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={2}
+                style={[
+                  styles.commentInput,
+                  {
+                    color: theme.text,
+                    backgroundColor: theme.headerBg,
+                    borderColor: theme.border,
+                  },
+                ]}
+              />
+
+              {/* Action Buttons */}
+              <View style={styles.noteActionRow}>
+                <Pressable
+                  onPress={() => setNoteModalVisible(false)}
+                  style={[styles.noteCancelBtn, { borderColor: theme.border }]}
+                >
+                  <Text style={[styles.noteCancelText, { color: theme.text }]}>Cancel</Text>
+                </Pressable>
+
+                <Pressable onPress={handleSaveNote} style={styles.noteSaveBtn}>
+                  <Feather name="check" size={16} color={colors.onPrimary} style={{ marginRight: 6 }} />
+                  <Text style={styles.noteSaveText}>Save Note</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1035,5 +1294,119 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 13,
     lineHeight: 18,
+  },
+  noteSheetContainer: {
+    maxHeight: "85%",
+    width: "100%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  noteSubLabel: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    opacity: 0.7,
+    marginTop: 2,
+  },
+  noteSheetScroll: {
+    padding: 18,
+    paddingBottom: 36,
+  },
+  noteSectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  ocrBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    backgroundColor: colors.primarySoft,
+  },
+  ocrBtnText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.primary,
+  },
+  noteTextInput: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    minHeight: 88,
+    maxHeight: 150,
+    textAlignVertical: "top",
+  },
+  colorPillsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 6,
+  },
+  colorPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  colorDotInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  colorPillText: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+  },
+  commentInput: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    padding: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    minHeight: 56,
+    textAlignVertical: "top",
+    marginTop: 6,
+  },
+  noteActionRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+  },
+  noteCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noteCancelText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+  },
+  noteSaveBtn: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+  },
+  noteSaveText: {
+    fontFamily: fonts.semibold,
+    fontSize: 15,
+    color: colors.onPrimary,
   },
 });

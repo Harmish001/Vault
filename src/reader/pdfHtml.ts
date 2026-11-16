@@ -114,6 +114,51 @@ export function getPdfReaderHtml(
         post({ type: "error", message: (err && err.message) || "Could not parse PDF" });
       }
 
+      function extractCurrentPageText() {
+        if (!pdfDoc) {
+          post({ type: "page_text_extracted", page: curPage, text: "", imageData: null });
+          return;
+        }
+        pdfDoc.getPage(curPage).then(function(page) {
+          page.getTextContent().then(function(tc) {
+            var items = (tc && tc.items) || [];
+            var text = items.map(function(it) { return it.str; }).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+
+            var canvas = document.getElementById("pdf-canvas");
+            var imgData = null;
+            try {
+              imgData = canvas ? canvas.toDataURL("image/jpeg", 0.8) : null;
+            } catch (e) {}
+
+            post({
+              type: "page_text_extracted",
+              page: curPage,
+              text: text,
+              imageData: imgData
+            });
+          }).catch(function() {
+            var canvas = document.getElementById("pdf-canvas");
+            var imgData = null;
+            try {
+              imgData = canvas ? canvas.toDataURL("image/jpeg", 0.8) : null;
+            } catch (e) {}
+            post({
+              type: "page_text_extracted",
+              page: curPage,
+              text: "",
+              imageData: imgData
+            });
+          });
+        }).catch(function() {
+          post({
+            type: "page_text_extracted",
+            page: curPage,
+            text: "",
+            imageData: null
+          });
+        });
+      }
+
       function renderPage(num) {
         if (!pdfDoc) return;
         if (num < 1) num = 1;
@@ -261,6 +306,9 @@ export function getPdfReaderHtml(
             break;
           case "jump_page":
             if (typeof data.page === "number") renderPage(data.page);
+            break;
+          case "extract_page_text":
+            extractCurrentPageText();
             break;
         }
       };
