@@ -2,8 +2,9 @@
  * Instant Search: Global search overlay accessible from anywhere.
  * Shows files, notes, folders with inline copy for field values.
  */
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Image,
   Keyboard,
   Modal,
   Pressable,
@@ -29,6 +30,7 @@ type Props = {
   onOpenFile: (fileId: string) => void;
   onOpenFolder: (folderId: string) => void;
   onOpenNote: (noteId: string) => void;
+  onOpenBook?: (bookId: string) => void;
 };
 
 export default function InstantSearch({
@@ -37,24 +39,36 @@ export default function InstantSearch({
   onOpenFile,
   onOpenFolder,
   onOpenNote,
+  onOpenBook,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { files, folders, notes, fileUri } = useVault();
+  const { files, folders, notes, books, fileUri } = useVault();
   const { copyValue } = useQuickCopy();
   const [query, setQuery] = useState("");
   const inputRef = useRef<TextInput>(null);
 
-  // Focus input when modal opens
+  // Directly open native keyboard with retry timers when modal opens
+  useEffect(() => {
+    if (visible) {
+      const timers = [
+        setTimeout(() => inputRef.current?.focus(), 50),
+        setTimeout(() => inputRef.current?.focus(), 180),
+        setTimeout(() => inputRef.current?.focus(), 350),
+      ];
+      return () => timers.forEach(clearTimeout);
+    } else {
+      setQuery("");
+    }
+  }, [visible]);
+
   const handleShow = () => {
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 100);
+    inputRef.current?.focus();
   };
 
   const q = query.trim().toLowerCase();
 
   const results = useMemo(() => {
-    if (!q || q.length < 2) return null;
+    if (!q) return null;
 
     // Search files with field values
     const matchedFiles = files.filter((f) => {
@@ -70,13 +84,21 @@ export default function InstantSearch({
       (n) => n.title.toLowerCase().includes(q) || (!n.isSecret && n.content.toLowerCase().includes(q))
     );
 
+    // Search books
+    const matchedBooks = (books ?? []).filter(
+      (b) =>
+        b.title.toLowerCase().includes(q) ||
+        (b.author && b.author.toLowerCase().includes(q))
+    );
+
     return {
       files: matchedFiles.slice(0, 8),
       folders: matchedFolders.slice(0, 4),
       notes: matchedNotes.slice(0, 4),
-      total: matchedFiles.length + matchedFolders.length + matchedNotes.length,
+      books: matchedBooks.slice(0, 4),
+      total: matchedFiles.length + matchedFolders.length + matchedNotes.length + matchedBooks.length,
     };
-  }, [q, files, folders, notes]);
+  }, [q, files, folders, notes, books]);
 
   function handleCopyField(label: string, value: string, fileId: string) {
     copyValue(label, value, fileId, "file");
@@ -87,248 +109,300 @@ export default function InstantSearch({
   return (
     <Modal
       visible={visible}
-      transparent
       animationType="fade"
+      statusBarTranslucent
       onRequestClose={onClose}
       onShow={handleShow}
     >
-      <View style={[styles.overlay, { paddingTop: insets.top + 40 }]}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
+      <View style={[styles.root, { paddingTop: Math.max(insets.top, 12) }]}>
+        {/* Top search bar with Back button and standard DocVault search pill */}
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={onClose}
+            hitSlop={10}
+            style={styles.backBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Close search"
+          >
+            <Feather name="arrow-left" size={22} color={colors.ink} />
+          </Pressable>
 
-        <View style={styles.container}>
-          {/* Search input */}
-          <View style={styles.searchBox}>
-            <Feather name="search" size={20} color={colors.muted} />
+          <View style={styles.searchPill}>
+            <Feather name="search" size={18} color={colors.muted} />
             <TextInput
               ref={inputRef}
               value={query}
               onChangeText={setQuery}
-              placeholder="Search documents, numbers, notes..."
+              placeholder="Search documents, numbers, notes, books…"
               placeholderTextColor={colors.muted}
               style={styles.searchInput}
               autoFocus
+              showSoftInputOnFocus={true}
               returnKeyType="search"
               autoCapitalize="none"
               autoCorrect={false}
             />
-            {query ? (
-              <Pressable onPress={() => setQuery("")} hitSlop={10}>
-                <Feather name="x" size={20} color={colors.muted} />
+            {query.length > 0 && (
+              <Pressable
+                onPress={() => setQuery("")}
+                hitSlop={10}
+                accessibilityLabel="Clear search"
+              >
+                <Feather name="x" size={18} color={colors.muted} />
               </Pressable>
-            ) : null}
+            )}
           </View>
+        </View>
 
-          {/* Results */}
-          <ScrollView
-            style={styles.results}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingBottom: 20 }}
-          >
-            {!results && q.length < 2 && (
-              <View style={styles.hint}>
-                <Feather name="search" size={32} color={colors.line} />
-                <Text style={styles.hintText}>Type to search across all documents and notes</Text>
-                <Text style={styles.hintSub}>
-                  Find Aadhaar, PAN, policy numbers — tap to copy instantly
-                </Text>
-              </View>
-            )}
+        {/* Results */}
+        <ScrollView
+          style={styles.results}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[
+            styles.resultsContent,
+            { paddingBottom: Math.max(insets.bottom, 24) + 16 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          {!results && q.length < 2 && (
+            <View style={styles.hint}>
+              <Feather name="search" size={32} color={colors.line} />
+              <Text style={styles.hintText}>Type to search across DocVault</Text>
+              <Text style={styles.hintSub}>
+                Find documents, Aadhaar, PAN numbers, notes, and books instantly
+              </Text>
+            </View>
+          )}
 
-            {results && results.total === 0 && (
-              <View style={styles.hint}>
-                <Feather name="file-minus" size={32} color={colors.line} />
-                <Text style={styles.hintText}>No results for "{query}"</Text>
-              </View>
-            )}
+          {results && results.total === 0 && (
+            <View style={styles.hint}>
+              <Feather name="file-minus" size={32} color={colors.line} />
+              <Text style={styles.hintText}>No results for "{query}"</Text>
+            </View>
+          )}
 
-            {results && results.files.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Documents ({results.files.length})</Text>
-                {results.files.map((f) => (
-                  <View key={f.id} style={styles.resultCard}>
-                    <Pressable
-                      onPress={() => {
-                        onClose();
-                        onOpenFile(f.id);
-                      }}
-                      style={styles.resultRow}
-                    >
-                      <FileThumb name={f.name} mime={f.mime} uri={fileUri(f)} size={40} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.resultName} numberOfLines={1}>
-                          {f.name}
-                        </Text>
-                        <Text style={styles.resultSub} numberOfLines={1}>
-                          {folderPath(folders, f.folderId)}
-                        </Text>
-                      </View>
-                      <Feather name="chevron-right" size={18} color={colors.muted} />
-                    </Pressable>
-
-                    {/* Inline copy buttons for fields */}
-                    {f.fields && f.fields.length > 0 && (
-                      <View style={styles.fieldsRow}>
-                        {f.fields.map((field) => (
-                          <Pressable
-                            key={field.id}
-                            onPress={() => handleCopyField(field.label, field.value, f.id)}
-                            style={({ pressed }) => [
-                              styles.fieldBtn,
-                              pressed && { backgroundColor: colors.primary },
-                            ]}
-                          >
-                            {({ pressed }) => (
-                              <>
-                                <Feather
-                                  name="copy"
-                                  size={11}
-                                  color={pressed ? colors.onPrimary : colors.primary}
-                                />
-                                <Text
-                                  style={[
-                                    styles.fieldLabel,
-                                    pressed && { color: colors.onPrimary },
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {field.label}
-                                </Text>
-                                <Text
-                                  style={[
-                                    styles.fieldValue,
-                                    pressed && { color: colors.onPrimary },
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {maskValue(field.value)}
-                                </Text>
-                              </>
-                            )}
-                          </Pressable>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {results && results.folders.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Folders ({results.folders.length})</Text>
-                {results.folders.map((f) => (
+          {results && results.files.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Documents ({results.files.length})</Text>
+              {results.files.map((f) => (
+                <View key={f.id} style={styles.resultCard}>
                   <Pressable
-                    key={f.id}
                     onPress={() => {
                       onClose();
-                      onOpenFolder(f.id);
+                      onOpenFile(f.id);
                     }}
-                    style={({ pressed }) => [
-                      styles.resultRow,
-                      styles.resultCard,
-                      pressed && { backgroundColor: colors.surfaceAlt },
-                    ]}
+                    style={styles.resultRow}
                   >
-                    <View
-                      style={[styles.folderIcon, { backgroundColor: f.color + "22" }]}
-                    >
-                      <Feather name="folder" size={18} color={f.color} />
-                    </View>
+                    <FileThumb name={f.name} mime={f.mime} uri={fileUri(f)} size={40} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.resultName} numberOfLines={1}>
                         {f.name}
                       </Text>
-                    </View>
-                    <Feather name="chevron-right" size={18} color={colors.muted} />
-                  </Pressable>
-                ))}
-              </View>
-            )}
-
-            {results && results.notes.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Notes ({results.notes.length})</Text>
-                {results.notes.map((n) => (
-                  <Pressable
-                    key={n.id}
-                    onPress={() => {
-                      onClose();
-                      onOpenNote(n.id);
-                    }}
-                    style={({ pressed }) => [
-                      styles.resultRow,
-                      styles.resultCard,
-                      pressed && { backgroundColor: colors.surfaceAlt },
-                    ]}
-                  >
-                    <View style={styles.noteIcon}>
-                      <Feather name={n.isSecret ? "lock" : "edit-3"} size={16} color={colors.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.resultName} numberOfLines={1}>
-                        {n.title || "Untitled Note"}
-                      </Text>
                       <Text style={styles.resultSub} numberOfLines={1}>
-                        {n.isSecret ? "Secure note" : n.content.slice(0, 50)}
+                        {folderPath(folders, f.folderId)}
                       </Text>
                     </View>
                     <Feather name="chevron-right" size={18} color={colors.muted} />
                   </Pressable>
-                ))}
-              </View>
-            )}
-          </ScrollView>
 
-          {/* Close button */}
-          <Pressable onPress={onClose} style={styles.closeBtn}>
-            <Text style={styles.closeBtnText}>Close</Text>
-          </Pressable>
-        </View>
+                  {/* Inline copy buttons for fields */}
+                  {f.fields && f.fields.length > 0 && (
+                    <View style={styles.fieldsRow}>
+                      {f.fields.map((field) => (
+                        <Pressable
+                          key={field.id}
+                          onPress={() => handleCopyField(field.label, field.value, f.id)}
+                          style={({ pressed }) => [
+                            styles.fieldBtn,
+                            pressed && { backgroundColor: colors.primary },
+                          ]}
+                        >
+                          {({ pressed }) => (
+                            <>
+                              <Feather
+                                name="copy"
+                                size={11}
+                                color={pressed ? colors.onPrimary : colors.primary}
+                              />
+                              <Text
+                                style={[
+                                  styles.fieldLabel,
+                                  pressed && { color: colors.onPrimary },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {field.label}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.fieldValue,
+                                  pressed && { color: colors.onPrimary },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {maskValue(field.value)}
+                              </Text>
+                            </>
+                          )}
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {results && results.folders.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Folders ({results.folders.length})</Text>
+              {results.folders.map((f) => (
+                <Pressable
+                  key={f.id}
+                  onPress={() => {
+                    onClose();
+                    onOpenFolder(f.id);
+                  }}
+                  style={({ pressed }) => [
+                    styles.resultRow,
+                    styles.resultCard,
+                    pressed && { backgroundColor: colors.surfaceAlt },
+                  ]}
+                >
+                  <View
+                    style={[styles.folderIcon, { backgroundColor: f.color + "22" }]}
+                  >
+                    <Feather name="folder" size={18} color={f.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resultName} numberOfLines={1}>
+                      {f.name}
+                    </Text>
+                  </View>
+                  <Feather name="chevron-right" size={18} color={colors.muted} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {results && results.notes.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Notes ({results.notes.length})</Text>
+              {results.notes.map((n) => (
+                <Pressable
+                  key={n.id}
+                  onPress={() => {
+                    onClose();
+                    onOpenNote(n.id);
+                  }}
+                  style={({ pressed }) => [
+                    styles.resultRow,
+                    styles.resultCard,
+                    pressed && { backgroundColor: colors.surfaceAlt },
+                  ]}
+                >
+                  <View style={styles.noteIcon}>
+                    <Feather name={n.isSecret ? "lock" : "edit-3"} size={16} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resultName} numberOfLines={1}>
+                      {n.title || "Untitled Note"}
+                    </Text>
+                    <Text style={styles.resultSub} numberOfLines={1}>
+                      {n.isSecret ? "Secure note" : n.content.slice(0, 50)}
+                    </Text>
+                  </View>
+                  <Feather name="chevron-right" size={18} color={colors.muted} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {results && results.books && results.books.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Books ({results.books.length})</Text>
+              {results.books.map((b) => (
+                <Pressable
+                  key={b.id}
+                  onPress={() => {
+                    onClose();
+                    onOpenBook?.(b.id);
+                  }}
+                  style={({ pressed }) => [
+                    styles.resultRow,
+                    styles.resultCard,
+                    pressed && { backgroundColor: colors.surfaceAlt },
+                  ]}
+                >
+                  {b.coverPath ? (
+                    <Image source={{ uri: b.coverPath }} style={styles.bookThumb} />
+                  ) : (
+                    <View style={[styles.folderIcon, { backgroundColor: colors.primarySoft }]}>
+                      <Feather name="book" size={18} color={colors.primary} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resultName} numberOfLines={1}>
+                      {b.title}
+                    </Text>
+                    {b.author ? (
+                      <Text style={styles.resultSub} numberOfLines={1}>
+                        {b.author}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Feather name="chevron-right" size={18} color={colors.muted} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </ScrollView>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  root: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  backdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  container: {
-    maxHeight: "85%",
-    marginHorizontal: 12,
     backgroundColor: colors.bg,
-    borderRadius: 20,
-    overflow: "hidden",
   },
-  searchBox: {
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    gap: 12,
+  },
+  backBtn: {
+    padding: 6,
+    marginLeft: -6,
+  },
+  searchPill: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
   },
   searchInput: {
     flex: 1,
     fontFamily: fonts.body,
-    fontSize: 17,
+    fontSize: 15,
     color: colors.ink,
     padding: 0,
   },
   results: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingTop: 12,
+  },
+  resultsContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   hint: {
     alignItems: "center",
@@ -381,6 +455,12 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 2,
   },
+  bookThumb: {
+    width: 36,
+    height: 48,
+    borderRadius: 4,
+    backgroundColor: colors.line,
+  },
   fieldsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -424,17 +504,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
     alignItems: "center",
     justifyContent: "center",
-  },
-  closeBtn: {
-    backgroundColor: colors.surface,
-    paddingVertical: 14,
-    alignItems: "center",
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-  },
-  closeBtnText: {
-    fontFamily: fonts.semibold,
-    fontSize: 16,
-    color: colors.primary,
   },
 });

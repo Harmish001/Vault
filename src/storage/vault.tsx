@@ -4,7 +4,21 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Directory as PickedDirectory, File as PickedFile } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { isPasswordProtected, unzip, unzipWithPassword, zip, zipWithPassword } from "react-native-zip-archive";
-import { Favorite, Folder, IncomingFile, Note, Profile, Reminder, VaultFile, VaultIndex } from "../types";
+import {
+  Book,
+  Bookmark,
+  BookProgress,
+  Favorite,
+  Folder,
+  IncomingFile,
+  Note,
+  Profile,
+  Quote,
+  ReaderSettings,
+  Reminder,
+  VaultFile,
+  VaultIndex,
+} from "../types";
 import { loadKey, randomNonce, replaceKey } from "../security/keystore";
 import { decryptString, encryptString } from "../security/crypto";
 import {
@@ -28,6 +42,8 @@ const DOC = FileSystem.documentDirectory ?? "";
 const CACHE = FileSystem.cacheDirectory ?? "";
 const ROOT = DOC + "vault/";
 const FILES_DIR = ROOT + "files/";
+const LOCATIONS_DIR = ROOT + "locations/";
+export const COVERS_DIR = ROOT + "covers/";
 // The real index is encrypted and lives OUTSIDE vault/, so backups never pick it up.
 const INDEX_ENC = DOC + "vault.enc";
 const INDEX_ENC_TMP = DOC + "vault.enc.tmp";
@@ -42,7 +58,29 @@ const OLD_ROOT = DOC + "vault_old/";
 const EPHEMERAL_DIR = CACHE + "ephemeral/";
 const EPHEMERAL_THUMBS_DIR = CACHE + "ephemeral_thumbs/";
 
-const EMPTY: VaultIndex = { version: 1, folders: [], files: [], reminders: [], notes: [] };
+export const DEFAULT_READER_SETTINGS: ReaderSettings = {
+  theme: "light",
+  fontFamily: "system",
+  fontSize: 18,
+  lineHeight: 1.5,
+  margin: "medium",
+  textAlign: "left",
+  keepScreenOn: true,
+  brightness: null,
+  tapZonesEnabled: true,
+};
+
+const EMPTY: VaultIndex = {
+  version: 1,
+  folders: [],
+  files: [],
+  reminders: [],
+  notes: [],
+  books: [],
+  quotes: [],
+  bookmarks: [],
+  readerSettings: DEFAULT_READER_SETTINGS,
+};
 
 export const PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
 export const BACKUPS_UNAVAILABLE =
@@ -62,6 +100,10 @@ function parseIndex(text: string): VaultIndex | null {
         ...parsed,
         reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
         notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+        books: Array.isArray(parsed.books) ? parsed.books : [],
+        quotes: Array.isArray(parsed.quotes) ? parsed.quotes : [],
+        bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [],
+        readerSettings: parsed.readerSettings ?? DEFAULT_READER_SETTINGS,
       } as VaultIndex;
     }
   } catch {
@@ -283,6 +325,25 @@ type Ctx = {
   /** creates a full backup directly under the standard auto-backup folder, overriding the previous backup */
   performAutoBackup: () => Promise<{ path: string; size: number }>;
   totalBytes: number;
+  books: Book[];
+  quotes: Quote[];
+  bookmarks: Bookmark[];
+  readerSettings: ReaderSettings;
+  createBook: (book: Omit<Book, "id" | "addedAt">) => Promise<Book>;
+  updateBook: (id: string, patch: Partial<Omit<Book, "id">>) => Promise<void>;
+  updateBookProgress: (id: string, progress: Partial<BookProgress>) => Promise<void>;
+  toggleFavoriteBook: (id: string) => Promise<void>;
+  deleteBook: (id: string, deleteQuotes?: boolean) => Promise<void>;
+  createQuote: (quote: Omit<Quote, "id" | "createdAt">) => Promise<Quote>;
+  updateQuote: (id: string, patch: Partial<Omit<Quote, "id" | "createdAt">>) => Promise<void>;
+  deleteQuote: (id: string) => Promise<void>;
+  createBookmark: (bookmark: Omit<Bookmark, "id" | "createdAt">) => Promise<Bookmark>;
+  deleteBookmark: (id: string) => Promise<void>;
+  updateReaderSettings: (patch: Partial<ReaderSettings>) => Promise<void>;
+  saveBookLocations: (bookId: string, locationsJson: string) => Promise<void>;
+  loadBookLocations: (bookId: string) => Promise<string | null>;
+  getBookDecryptedUri: (filePath: string) => Promise<string>;
+  importBookFile: (pickedUri: string, originalName: string) => Promise<{ filePath: string; size: number }>;
 };
 
 const VaultContext = createContext<Ctx | null>(null);
@@ -509,6 +570,207 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       },
       result: undefined,
     }));
+
+  const createBook: Ctx["createBook"] = (input) =>
+    mutate(async (cur) => {
+      const book: Book = {
+        ...input,
+        id: uid(),
+        addedAt: Date.now(),
+      };
+      return {
+        next: { ...cur, books: [book, ...(cur.books ?? [])] },
+        result: book,
+      };
+    });
+
+  const updateBook: Ctx["updateBook"] = (id, patch) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        books: (cur.books ?? []).map((b) => (b.id === id ? { ...b, ...patch } : b)),
+      },
+      result: undefined,
+    }));
+
+  const updateBookProgress: Ctx["updateBookProgress"] = (id, progressPatch) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        books: (cur.books ?? []).map((b) => {
+          if (b.id !== id) return b;
+          return {
+            ...b,
+            lastOpenedAt: Date.now(),
+            progress: {
+              ...b.progress,
+              ...progressPatch,
+              updatedAt: Date.now(),
+            },
+          };
+        }),
+      },
+      result: undefined,
+    }));
+
+  const toggleFavoriteBook: Ctx["toggleFavoriteBook"] = (id) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        books: (cur.books ?? []).map((b) => {
+          if (b.id !== id) return b;
+          const isFavorite = !b.isFavorite;
+          return {
+            ...b,
+            isFavorite,
+            favoritedAt: isFavorite ? Date.now() : null,
+          };
+        }),
+      },
+      result: undefined,
+    }));
+
+  const deleteBook: Ctx["deleteBook"] = (id, deleteQuotes = false) =>
+    mutate(async (cur) => {
+      const doomed = (cur.books ?? []).find((b) => b.id === id);
+      if (doomed?.filePath) {
+        await FileSystem.deleteAsync(FILES_DIR + doomed.filePath, { idempotent: true });
+      }
+      if (doomed?.coverPath) {
+        await FileSystem.deleteAsync(doomed.coverPath, { idempotent: true });
+      }
+      await FileSystem.deleteAsync(LOCATIONS_DIR + id + ".json", { idempotent: true });
+
+      const books = (cur.books ?? []).filter((b) => b.id !== id);
+      const bookmarks = (cur.bookmarks ?? []).filter((bm) => bm.bookId !== id);
+      const quotes = deleteQuotes
+        ? (cur.quotes ?? []).filter((q) => q.bookId !== id)
+        : (cur.quotes ?? []).map((q) => (q.bookId === id ? { ...q, bookId: null } : q));
+
+      return {
+        next: { ...cur, books, bookmarks, quotes },
+        result: undefined,
+      };
+    });
+
+  const createQuote: Ctx["createQuote"] = (input) =>
+    mutate(async (cur) => {
+      const now = Date.now();
+      const quotes = cur.quotes ?? [];
+      const duplicate = quotes.find(
+        (existing) =>
+          existing.bookId === input.bookId &&
+          existing.text.trim() === input.text.trim() &&
+          now - existing.createdAt < 5000
+      );
+      if (duplicate) {
+        return { next: cur, result: duplicate };
+      }
+      const quote: Quote = {
+        ...input,
+        id: uid(),
+        createdAt: now,
+      };
+      return {
+        next: { ...cur, quotes: [quote, ...quotes] },
+        result: quote,
+      };
+    });
+
+  const updateQuote: Ctx["updateQuote"] = (id, patch) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        quotes: (cur.quotes ?? []).map((q) => (q.id === id ? { ...q, ...patch } : q)),
+      },
+      result: undefined,
+    }));
+
+  const deleteQuote: Ctx["deleteQuote"] = (id) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        quotes: (cur.quotes ?? []).filter((q) => q.id !== id),
+      },
+      result: undefined,
+    }));
+
+  const createBookmark: Ctx["createBookmark"] = (input) =>
+    mutate(async (cur) => {
+      const bookmark: Bookmark = {
+        ...input,
+        id: uid(),
+        createdAt: Date.now(),
+      };
+      return {
+        next: {
+          ...cur,
+          bookmarks: [bookmark, ...(cur.bookmarks ?? [])],
+        },
+        result: bookmark,
+      };
+    });
+
+  const deleteBookmark: Ctx["deleteBookmark"] = (id) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        bookmarks: (cur.bookmarks ?? []).filter((bm) => bm.id !== id),
+      },
+      result: undefined,
+    }));
+
+  const updateReaderSettings: Ctx["updateReaderSettings"] = (patch) =>
+    mutate(async (cur) => ({
+      next: {
+        ...cur,
+        readerSettings: {
+          ...(cur.readerSettings ?? DEFAULT_READER_SETTINGS),
+          ...patch,
+        },
+      },
+      result: undefined,
+    }));
+
+  const saveBookLocations: Ctx["saveBookLocations"] = async (bookId, locationsJson) => {
+    try {
+      await FileSystem.makeDirectoryAsync(LOCATIONS_DIR, { intermediates: true });
+      await FileSystem.writeAsStringAsync(LOCATIONS_DIR + bookId + ".json", locationsJson);
+    } catch (e) {
+      console.warn("[vault] could not save book locations:", e);
+    }
+  };
+
+  const loadBookLocations: Ctx["loadBookLocations"] = async (bookId) => {
+    try {
+      const path = LOCATIONS_DIR + bookId + ".json";
+      if (!(await exists(path))) return null;
+      return await FileSystem.readAsStringAsync(path);
+    } catch {
+      return null;
+    }
+  };
+
+  const importBookFile: Ctx["importBookFile"] = async (pickedUri, originalName) => {
+    const key = keyRef.current;
+    if (!key) throw new Error("Vault is locked");
+    await FileSystem.makeDirectoryAsync(FILES_DIR, { intermediates: true });
+    const ext = extOf(originalName) || ".epub";
+    const storedAs = `book_${uid()}${ext}`;
+    const dest = FILES_DIR + storedAs;
+    const nonce = randomNonce();
+    await storeEncryptedFile(key, pickedUri, dest, nonce);
+    const info = await FileSystem.getInfoAsync(dest);
+    return { filePath: storedAs, size: info.exists && "size" in info ? (info.size as number) : 0 };
+  };
+
+  const getBookDecryptedUri = useCallback(async (filePath: string): Promise<string> => {
+    const key = keyRef.current;
+    if (!key) throw new Error("Vault is locked");
+    await FileSystem.makeDirectoryAsync(EPHEMERAL_DIR, { intermediates: true });
+    const ephemeralPath = EPHEMERAL_DIR + safeName(filePath);
+    return await ensureDecryptedCopy(key, FILES_DIR + filePath, ephemeralPath);
+  }, []);
 
   const renameFile: Ctx["renameFile"] = (id, name) =>
     mutate(async (cur) => ({
@@ -759,6 +1021,17 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    for (const b of latest.current.books ?? []) {
+      if (b.filePath) {
+        try {
+          const decUri = await getBookDecryptedUri(b.filePath);
+          await FileSystem.copyAsync({ from: decUri, to: stagingFilesDir + b.filePath });
+        } catch (e) {
+          console.warn("[backup] book export error for", b.title, e);
+        }
+      }
+    }
+
     const src = stripFileScheme(stagingDir).replace(/\/$/, "");
     const dst = stripFileScheme(out);
     try {
@@ -801,6 +1074,17 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         await FileSystem.copyAsync({ from: decUri, to: stagingFilesDir + f.storedAs });
       } catch (e) {
         console.warn("[auto-backup] file export error for", f.name, e);
+      }
+    }
+
+    for (const b of latest.current.books ?? []) {
+      if (b.filePath) {
+        try {
+          const decUri = await getBookDecryptedUri(b.filePath);
+          await FileSystem.copyAsync({ from: decUri, to: stagingFilesDir + b.filePath });
+        } catch (e) {
+          console.warn("[auto-backup] book export error for", b.title, e);
+        }
       }
     }
 
@@ -847,7 +1131,14 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
     // Keep only records whose file actually made it into the archive.
     const present = new Set(await FileSystem.readDirectoryAsync(newRoot + "files/").catch(() => [] as string[]));
-    const cleaned: VaultIndex = { ...incoming, files: incoming.files.filter((f) => present.has(f.storedAs)) };
+    const cleaned: VaultIndex = {
+      ...incoming,
+      files: incoming.files.filter((f) => present.has(f.storedAs)),
+      books: (incoming.books ?? []).filter((b) => !b.filePath || present.has(b.filePath)),
+      quotes: incoming.quotes ?? [],
+      bookmarks: incoming.bookmarks ?? [],
+      readerSettings: incoming.readerSettings ?? DEFAULT_READER_SETTINGS,
+    };
     await FileSystem.writeAsStringAsync(newRoot + "index.json", JSON.stringify(cleaned));
     await FileSystem.makeDirectoryAsync(newRoot + "files/", { intermediates: true });
 
@@ -918,6 +1209,25 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     restoreBackup,
     performAutoBackup,
     totalBytes,
+    books: index.books ?? [],
+    quotes: index.quotes ?? [],
+    bookmarks: index.bookmarks ?? [],
+    readerSettings: index.readerSettings ?? DEFAULT_READER_SETTINGS,
+    createBook,
+    updateBook,
+    updateBookProgress,
+    toggleFavoriteBook,
+    deleteBook,
+    createQuote,
+    updateQuote,
+    deleteQuote,
+    createBookmark,
+    deleteBookmark,
+    updateReaderSettings,
+    saveBookLocations,
+    loadBookLocations,
+    getBookDecryptedUri,
+    importBookFile,
   };
 
   return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>;

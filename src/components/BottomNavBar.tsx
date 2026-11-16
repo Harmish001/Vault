@@ -9,7 +9,7 @@ import { colors, fonts } from "../theme";
 import { useVault } from "../storage/vault";
 import { nextDue } from "../reminders-plan";
 
-export type TabKey = "documents" | "notes" | "home" | "reminders";
+export type TabKey = "documents" | "notes" | "home" | "books" | "reminders";
 
 type Props = {
   active: TabKey;
@@ -58,6 +58,11 @@ export default function BottomNavBar({ active, onChangeTab }: Props) {
       label: "Home",
       icon: "home",
       isCenter: true,
+    },
+    {
+      key: "books",
+      label: "Books",
+      icon: "book-open",
     },
     {
       key: "reminders",

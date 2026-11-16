@@ -39,6 +39,8 @@ import SmartShareScreen from "./src/screens/SmartShareScreen";
 import ShareQRScreen from "./src/screens/ShareQRScreen";
 import ShareBundlesScreen from "./src/screens/ShareBundlesScreen";
 import FileViewerScreen from "./src/screens/FileViewerScreen";
+import BookReaderScreen from "./src/screens/BookReaderScreen";
+import BookDetailScreen from "./src/screens/BookDetailScreen";
 
 import { refreshWidgets } from "./src/widget";
 import { syncFolderShortcuts } from "./src/folderShortcuts";
@@ -97,6 +99,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     if (!hasShareIntent || cur === "ShareChooser" || cur === "Save" || cur === "ReminderEdit") return;
     const shared = shareIntent.files ?? [];
     const text = shareIntent.text || shareIntent.webUrl || "";
+    if (!shared.length && !text) return;
     if (!shared.length && text) {
       navRef.navigate("ReminderEdit", { draft: { result: parseBill(text), source: "share-text", sourceText: text } });
     } else if (shared.length && !shared.some(isSharedImage)) {
@@ -320,6 +323,8 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="SmartShare" component={SmartShareScreen} />
         <Stack.Screen name="ShareQR" component={ShareQRScreen} options={{ animation: "slide_from_bottom" }} />
         <Stack.Screen name="FileViewer" component={FileViewerScreen} />
+        <Stack.Screen name="BookReader" component={BookReaderScreen} options={{ animation: "fade" }} />
+        <Stack.Screen name="BookDetail" component={BookDetailScreen} />
       </Stack.Navigator>
 
     </NavigationContainer>

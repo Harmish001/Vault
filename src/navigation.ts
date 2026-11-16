@@ -30,6 +30,8 @@ export type RootStackParamList = {
   Notes: undefined;
   NoteEdit: { id?: string } | undefined;
   SmartShare: { preselectedFileIds?: string[] } | undefined;
+  BookReader: { bookId: string };
+  BookDetail: { bookId: string };
   ShareQR: {
     url: string;
     expiresAt: number;

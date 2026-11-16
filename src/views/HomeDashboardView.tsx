@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import {
   Alert,
+  Image,
   Pressable,
   ScrollView,
   Share,
@@ -32,11 +33,11 @@ import { useShareBundles } from "../hooks/useShareBundles";
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
-  onSwitchTab?: (tab: "documents" | "notes" | "reminders") => void;
+  onSwitchTab?: (tab: "documents" | "notes" | "reminders" | "books") => void;
 };
 
 export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
-  const { folders, files, reminders, notes, fileUri, favorites, toggleFavorite, shareFile } = useVault();
+  const { folders, files, reminders, notes, books, fileUri, favorites, toggleFavorite, shareFile } = useVault();
   const openFile = useOpenFile(navigation);
   const { noDeviceLock } = useLock();
   const [query, setQuery] = useState("");
@@ -45,6 +46,16 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
   const folderActions = useFolderActions();
   const { recentCopies } = useQuickCopy();
   const { bundles, shareBundle, getBundleFiles } = useShareBundles();
+
+  const continueBook = useMemo(() => {
+    const readable = (books ?? []).filter((b) => b.type !== "external" && b.filePath);
+    if (!readable.length) return null;
+    return [...readable].sort((a, b) => {
+      const aTime = a.lastOpenedAt ?? a.addedAt;
+      const bTime = b.lastOpenedAt ?? b.addedAt;
+      return bTime - aTime;
+    })[0];
+  }, [books]);
 
   async function pickAndCompress() {
     try {
@@ -453,6 +464,63 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
               <Feather name="chevron-right" size={18} color={colors.muted} />
             </Pressable>
 
+            {/* Continue Reading Section (if any book exists) */}
+            {continueBook && (
+              <View>
+                <View style={styles.sectionHead}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                    <Feather name="book-open" size={18} color={colors.primary} />
+                    <Text style={styles.sectionTitle}>Continue Reading</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => onSwitchTab?.("books")}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="View all books"
+                  >
+                    <Text style={styles.sectionAction}>View all</Text>
+                  </Pressable>
+                </View>
+
+                <Pressable
+                  onPress={() => {
+                    if (continueBook.type === "epub" || continueBook.type === "pdf") {
+                      navigation.navigate("BookReader", { bookId: continueBook.id });
+                    } else {
+                      navigation.navigate("BookDetail", { bookId: continueBook.id });
+                    }
+                  }}
+                  style={({ pressed }) => [styles.continueHero, pressed && { opacity: 0.92 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Continue reading ${continueBook.title}`}
+                >
+                  <View style={styles.continueCover}>
+                    {continueBook.coverPath ? (
+                      <Image source={{ uri: continueBook.coverPath }} style={styles.continueCoverImg} />
+                    ) : (
+                      <View style={styles.continueCoverFallback}>
+                        <Feather name="book" size={24} color={colors.primary} />
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ flex: 1, justifyContent: "center" }}>
+                    <Text style={styles.continueTitle} numberOfLines={1}>{continueBook.title}</Text>
+                    {continueBook.author ? (
+                      <Text style={styles.continueAuthor} numberOfLines={1}>{continueBook.author}</Text>
+                    ) : null}
+                    <View style={styles.continueProgressBg}>
+                      <View style={[styles.continueProgressFill, { width: `${Math.round(continueBook.progress.percentage * 100)}%` }]} />
+                    </View>
+                    <Text style={styles.continuePct}>
+                      {Math.round(continueBook.progress.percentage * 100)}%
+                      {continueBook.progress.chapterLabel ? ` · ${continueBook.progress.chapterLabel}` : ""}
+                    </Text>
+                  </View>
+                  <Feather name="chevron-right" size={18} color={colors.muted} />
+                </Pressable>
+              </View>
+            )}
+
             {/* Favorites Section */}
             <View>
               <View style={styles.sectionHead}>
@@ -805,6 +873,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.muted,
     marginTop: 2,
+  },
+  continueHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+    gap: 12,
+    marginBottom: 16,
+  },
+  continueCover: {
+    width: 46,
+    height: 66,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceAlt,
+  },
+  continueCoverImg: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  continueCoverFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+  },
+  continueTitle: {
+    fontFamily: fonts.heading,
+    fontSize: 14.5,
+    color: colors.ink,
+  },
+  continueAuthor: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 2,
+  },
+  continueProgressBg: {
+    height: 4,
+    backgroundColor: colors.line,
+    borderRadius: 2,
+    overflow: "hidden",
+    marginTop: 6,
+  },
+  continueProgressFill: {
+    height: "100%",
+    backgroundColor: colors.primary,
+  },
+  continuePct: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 3,
   },
   sectionHead: {
     flexDirection: "row",
