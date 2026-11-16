@@ -11,6 +11,7 @@ import HomeDashboardView from "../views/HomeDashboardView";
 import DocumentsView from "../views/DocumentsView";
 import NotesView from "../views/NotesView";
 import RemindersView from "../views/RemindersView";
+import BooksView from "../views/BooksView";
 import InstantSearch from "../components/InstantSearch";
 
 export default function HomeScreen({
@@ -84,6 +85,7 @@ export default function HomeScreen({
         )}
         {activeTab === "documents" && <DocumentsView navigation={navigation} />}
         {activeTab === "notes" && <NotesView navigation={navigation} />}
+        {activeTab === "books" && <BooksView navigation={navigation} />}
         {activeTab === "reminders" && <RemindersView navigation={navigation} />}
       </View>
 

@@ -129,6 +129,98 @@ export type VaultIndex = {
   profile?: Profile;
   /** notes and secure credentials; absent in older indexes */
   notes?: Note[];
+  /** books library; absent in older indexes */
+  books?: Book[];
+  /** saved quotes and highlights for books; absent in older indexes */
+  quotes?: Quote[];
+  /** book bookmarks; absent in older indexes */
+  bookmarks?: Bookmark[];
+  /** reader settings; absent in older indexes */
+  readerSettings?: ReaderSettings;
+};
+
+export type BookType = "epub" | "pdf" | "external";
+
+export type BookProgress = {
+  epubCfi?: string | null;
+  percentage: number;
+  chapterLabel?: string | null;
+  pdfPage?: number | null;
+  pdfTotalPages?: number | null;
+  updatedAt: number;
+};
+
+export type BookStatus = "unread" | "reading" | "finished";
+
+export function getBookStatus(book: Book): BookStatus {
+  if (book.progress.percentage >= 0.98) return "finished";
+  if (book.progress.percentage > 0 || Boolean(book.progress.epubCfi) || Boolean(book.progress.pdfPage)) {
+    return "reading";
+  }
+  return "unread";
+}
+
+export type Book = {
+  id: string;
+  title: string;
+  author?: string | null;
+  type: BookType;
+  filePath?: string | null;
+  coverPath?: string | null;
+  isFavorite: boolean;
+  favoritedAt?: number | null;
+  addedAt: number;
+  lastOpenedAt?: number | null;
+  progress: BookProgress;
+};
+
+export type QuoteSource = "reader" | "selection_menu" | "share" | "scan";
+export type QuoteColor = "yellow" | "green" | "blue" | "pink";
+
+export type Quote = {
+  id: string;
+  bookId?: string | null;
+  text: string;
+  epubCfiRange?: string | null;
+  pdfPage?: number | null;
+  pageLabel?: string | null;
+  color: QuoteColor;
+  userNote?: string | null;
+  source: QuoteSource;
+  createdAt: number;
+};
+
+export type Bookmark = {
+  id: string;
+  bookId: string;
+  epubCfi?: string | null;
+  pdfPage?: number | null;
+  label: string;
+  percentage: number;
+  createdAt: number;
+};
+
+export type ReaderTheme = "light" | "sepia" | "dark" | "black";
+export type ReaderMargin = "small" | "medium" | "large";
+export type ReaderTextAlign = "left" | "justify";
+
+export type ReaderSettings = {
+  theme: ReaderTheme;
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  margin: ReaderMargin;
+  textAlign: ReaderTextAlign;
+  keepScreenOn: boolean;
+  brightness?: number | null;
+  tapZonesEnabled: boolean;
+};
+
+export type BookLocations = {
+  bookId: string;
+  locationsJson: string;
+  generatedAt: number;
+  locationCount: number;
 };
 
 export type IncomingFile = {
