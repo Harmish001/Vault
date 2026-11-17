@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import {
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,8 +19,9 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { colors, fonts, radius } from "../theme";
-import { Bookmark, getBookStatus, Quote } from "../types";
+import { Bookmark, getBookStatus, Quote, QuoteColor } from "../types";
 import { ActionMenu, EmptyState, IconButton, MenuItem, ScreenHeader } from "../components/ui";
+import { QUOTE_COLORS } from "./BookReaderScreen";
 
 type Props = NativeStackScreenProps<RootStackParamList, "BookDetail">;
 
@@ -32,6 +34,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     updateBook,
     deleteBook,
     toggleFavoriteBook,
+    updateQuote,
     deleteQuote,
     deleteBookmark,
   } = useVault();
@@ -42,6 +45,43 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sortNewest, setSortNewest] = useState(false);
+
+  // Edit Quote modal state
+  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [editUserNote, setEditUserNote] = useState("");
+  const [editColor, setEditColor] = useState<QuoteColor>("yellow");
+
+  const handleOpenEditQuote = (q: Quote) => {
+    setEditingQuote(q);
+    setEditText(q.text);
+    setEditUserNote(q.userNote || "");
+    setEditColor(q.color || "yellow");
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEditQuote = async () => {
+    if (!editingQuote) return;
+    const cleanText = editText.trim();
+    const cleanNote = editUserNote.trim();
+    if (!cleanText && !cleanNote) {
+      Alert.alert("Empty note", "Please enter quote text or your reflection note.");
+      return;
+    }
+    try {
+      await updateQuote(editingQuote.id, {
+        text: cleanText || cleanNote,
+        userNote: cleanNote || null,
+        color: editColor,
+      });
+      ToastAndroid.show("Note updated", ToastAndroid.SHORT);
+      setEditModalVisible(false);
+      setEditingQuote(null);
+    } catch (err: any) {
+      Alert.alert("Update error", err.message || "Failed to update note.");
+    }
+  };
 
   // Quotes for this book
   const bookQuotes = useMemo(() => {
@@ -315,6 +355,13 @@ export default function BookDetailScreen({ navigation, route }: Props) {
                       <Feather name="copy" size={15} color={colors.muted} />
                     </Pressable>
                     <Pressable
+                      onPress={() => handleOpenEditQuote(q)}
+                      hitSlop={8}
+                      style={{ marginRight: 10 }}
+                    >
+                      <Feather name="edit-2" size={15} color={colors.muted} />
+                    </Pressable>
+                    <Pressable
                       onPress={() => {
                         Alert.alert("Delete quote?", "Remove this quote from the book.", [
                           { text: "Cancel", style: "cancel" },
@@ -373,6 +420,88 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         items={menuItems}
         onClose={() => setMenuOpen(false)}
       />
+
+      {/* Edit Note Modal */}
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setEditModalVisible(false)}>
+          <Pressable style={styles.editSheetContainer} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.editSheetHeader}>
+              <Text style={styles.editSheetTitle}>Edit Note / Highlight</Text>
+              <Pressable onPress={() => setEditModalVisible(false)} hitSlop={8}>
+                <Feather name="x" size={20} color={colors.ink} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.editSheetScroll} keyboardShouldPersistTaps="handled">
+              <Text style={styles.editLabel}>HIGHLIGHTED TEXT</Text>
+              <TextInput
+                value={editText}
+                onChangeText={setEditText}
+                placeholder="Quote or highlighted text..."
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={3}
+                style={styles.editTextInput}
+              />
+
+              <Text style={[styles.editLabel, { marginTop: 14 }]}>COLOR</Text>
+              <View style={styles.colorPillsRow}>
+                {(["yellow", "green", "blue", "pink"] as QuoteColor[]).map((c) => {
+                  const active = editColor === c;
+                  const col = QUOTE_COLORS[c];
+                  return (
+                    <Pressable
+                      key={c}
+                      onPress={() => setEditColor(c)}
+                      style={[
+                        styles.colorPill,
+                        { backgroundColor: col.bg, borderColor: active ? col.hex : colors.line },
+                        active && { borderWidth: 2 },
+                      ]}
+                    >
+                      <View style={[styles.colorDotInner, { backgroundColor: col.hex }]} />
+                      <Text style={[styles.colorPillText, { color: col.hex, fontWeight: active ? "700" : "500" }]}>
+                        {col.name}
+                      </Text>
+                      {active && <Feather name="check" size={14} color={col.hex} />}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.editLabel, { marginTop: 14 }]}>YOUR NOTE / THOUGHTS</Text>
+              <TextInput
+                value={editUserNote}
+                onChangeText={setEditUserNote}
+                placeholder="Add reflections, commentary, keywords..."
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={2}
+                style={styles.editCommentInput}
+              />
+
+              <View style={styles.editActionRow}>
+                <Pressable
+                  onPress={() => setEditModalVisible(false)}
+                  style={styles.editCancelBtn}
+                >
+                  <Text style={styles.editCancelText}>Cancel</Text>
+                </Pressable>
+
+                <Pressable onPress={handleSaveEditQuote} style={styles.editSaveBtn}>
+                  <Feather name="check" size={16} color={colors.onPrimary} style={{ marginRight: 6 }} />
+                  <Text style={styles.editSaveText}>Save Changes</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -620,5 +749,126 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.muted,
     marginTop: 2,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  editSheetContainer: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    maxHeight: "85%",
+  },
+  editSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  editSheetTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 16,
+    color: colors.ink,
+  },
+  editSheetScroll: {
+    padding: 18,
+    paddingBottom: 36,
+  },
+  editLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    color: colors.muted,
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  editTextInput: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    color: colors.ink,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: 12,
+    minHeight: 80,
+    maxHeight: 140,
+    textAlignVertical: "top",
+  },
+  editCommentInput: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    color: colors.ink,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: 10,
+    minHeight: 60,
+    textAlignVertical: "top",
+  },
+  colorPillsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+  colorPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  colorDotInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  colorPillText: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+  },
+  editActionRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+  },
+  editCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editCancelText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: colors.ink,
+  },
+  editSaveBtn: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+  },
+  editSaveText: {
+    fontFamily: fonts.semibold,
+    fontSize: 15,
+    color: colors.onPrimary,
   },
 });

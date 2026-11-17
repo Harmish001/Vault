@@ -93,6 +93,10 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const lastPageImageDataRef = useRef<string | null>(null);
   const selectedCfiRangeRef = useRef<string | null>(null);
 
+  // Highlighter mode state
+  const [highlightMode, setHighlightMode] = useState(false);
+  const [highlightColor, setHighlightColor] = useState<QuoteColor>("yellow");
+
   // Current reading position
   const [currentCfi, setCurrentCfi] = useState<string | null>(book?.progress.epubCfi ?? null);
   const [percentage, setPercentage] = useState<number>(book?.progress.percentage ?? 0);
@@ -325,6 +329,28 @@ export default function BookReaderScreen({ navigation, route }: Props) {
             }
             break;
 
+          case "highlight_captured": {
+            const capText = data.text ? data.text.trim() : "";
+            const capColor = data.color || highlightColor;
+            setNoteColor(capColor);
+
+            if (data.cfiRange) {
+              selectedCfiRangeRef.current = data.cfiRange;
+            }
+
+            if (capText) {
+              setNoteText(capText);
+              setNoteModalVisible(true);
+            } else if (data.imageData) {
+              lastPageImageDataRef.current = data.imageData;
+              handleRunOcrOnSnippet(data.imageData);
+            } else {
+              setNoteText("");
+              setNoteModalVisible(true);
+            }
+            break;
+          }
+
           case "text_selected":
             selectedCfiRangeRef.current = data.cfiRange || null;
             if (data.text) {
@@ -373,6 +399,70 @@ export default function BookReaderScreen({ navigation, route }: Props) {
     updateReaderSettings(patch);
     sendToWebview("update_settings", { settings: updated });
   };
+
+  // Toggle highlighter mode
+  const handleToggleHighlightMode = useCallback(() => {
+    setHighlightMode((prev) => {
+      const next = !prev;
+      sendToWebview("set_highlight_mode", {
+        enabled: next,
+        color: highlightColor,
+        colorHex: QUOTE_COLORS[highlightColor].hex,
+      });
+      ToastAndroid.show(
+        next ? "Highlighter on: drag or select text on page" : "Highlighter off",
+        ToastAndroid.SHORT
+      );
+      return next;
+    });
+  }, [highlightColor, sendToWebview]);
+
+  // Change active highlight color
+  const handleChangeHighlightColor = useCallback(
+    (c: QuoteColor) => {
+      setHighlightColor(c);
+      setNoteColor(c);
+      sendToWebview("set_highlight_color", {
+        color: c,
+        colorHex: QUOTE_COLORS[c].hex,
+      });
+    },
+    [sendToWebview]
+  );
+
+  // Run on-device OCR on a cropped highlight slice
+  const handleRunOcrOnSnippet = useCallback(
+    async (b64Data: string) => {
+      if (!ocrSupported) {
+        setNoteText("");
+        setNoteModalVisible(true);
+        return;
+      }
+      ToastAndroid.show("Reading highlighted section…", ToastAndroid.SHORT);
+      setOcrRunning(true);
+      try {
+        const tempUri = `${FileSystem.cacheDirectory}ocr_hl_${Date.now()}.jpg`;
+        const cleanB64 = b64Data.replace(/^data:image\/\w+;base64,/, "");
+        await FileSystem.writeAsStringAsync(tempUri, cleanB64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const recognized = await readPageText(tempUri);
+        await FileSystem.deleteAsync(tempUri, { idempotent: true });
+        if (recognized && recognized.trim()) {
+          setNoteText(recognized.trim());
+          ToastAndroid.show("Highlighted text recognized via OCR", ToastAndroid.SHORT);
+        } else {
+          setNoteText("");
+        }
+      } catch (e) {
+        setNoteText("");
+      } finally {
+        setOcrRunning(false);
+        setNoteModalVisible(true);
+      }
+    },
+    []
+  );
 
   // Open Note / Quote capture
   const handleOpenNoteCapture = () => {
@@ -562,13 +652,29 @@ export default function BookReaderScreen({ navigation, route }: Props) {
 
           <View style={styles.headerRight}>
             <Pressable
-              onPress={handleOpenNoteCapture}
+              onPress={handleToggleHighlightMode}
               hitSlop={8}
-              style={styles.iconBtn}
+              style={[
+                styles.iconBtn,
+                highlightMode && {
+                  backgroundColor: theme.activeIcon,
+                  borderRadius: 20,
+                },
+              ]}
               accessibilityRole="button"
-              accessibilityLabel="Take note or capture quote"
+              accessibilityLabel="Highlighter mode"
             >
-              <Feather name="edit-3" size={20} color={theme.text} />
+              <Feather
+                name="edit-3"
+                size={20}
+                color={
+                  highlightMode
+                    ? readerSettings.theme === "dark" || readerSettings.theme === "black"
+                      ? "#121212"
+                      : colors.onPrimary
+                    : theme.text
+                }
+              />
             </Pressable>
 
             {book?.type === "epub" && (
@@ -592,6 +698,56 @@ export default function BookReaderScreen({ navigation, route }: Props) {
             >
               <Feather name="type" size={20} color={theme.text} />
             </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* Highlighter Toolbar (active when highlightMode is ON) */}
+      {highlightMode && (
+        <View
+          style={[
+            styles.highlighterBar,
+            {
+              backgroundColor: theme.headerBg,
+              borderColor: theme.border,
+              top: uiVisible ? Math.max(insets.top, 12) + 54 : Math.max(insets.top, 12) + 8,
+            },
+          ]}
+        >
+          <View style={styles.hlInfoRow}>
+            <View style={[styles.hlPencilBadge, { backgroundColor: QUOTE_COLORS[highlightColor].hex }]}>
+              <Feather name="edit-3" size={13} color="#FFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.hlTitle, { color: theme.text }]}>Highlighter Active</Text>
+              <Text style={[styles.hlSubtitle, { color: theme.text }]}>Drag over text on page to highlight & quote</Text>
+            </View>
+            <Pressable
+              onPress={handleToggleHighlightMode}
+              style={[styles.hlDoneBtn, { borderColor: theme.border, backgroundColor: theme.bg }]}
+            >
+              <Text style={[styles.hlDoneText, { color: theme.text }]}>Done</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.hlColors}>
+            {(["yellow", "green", "blue", "pink"] as QuoteColor[]).map((c) => {
+              const col = QUOTE_COLORS[c];
+              const active = highlightColor === c;
+              return (
+                <Pressable
+                  key={c}
+                  onPress={() => handleChangeHighlightColor(c)}
+                  style={[
+                    styles.hlColorDot,
+                    { backgroundColor: col.hex, borderColor: active ? theme.text : "transparent" },
+                    active && styles.hlColorDotActive,
+                  ]}
+                >
+                  {active && <Feather name="check" size={11} color="#FFF" />}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       )}
@@ -1562,5 +1718,69 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: 15,
     color: colors.onPrimary,
+  },
+  highlighterBar: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    zIndex: 100,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  hlInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  hlPencilBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hlTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+  },
+  hlSubtitle: {
+    fontFamily: fonts.body,
+    fontSize: 11,
+    opacity: 0.7,
+  },
+  hlDoneBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  hlDoneText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  hlColors: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  hlColorDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  hlColorDotActive: {
+    borderWidth: 2.5,
+    transform: [{ scale: 1.15 }],
   },
 });

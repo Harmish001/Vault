@@ -109,6 +109,24 @@ export function getPdfReaderHtml(
       right: 0;
       background: linear-gradient(to left, rgba(0,0,0,0.28), rgba(0,0,0,0.08) 60%, transparent);
     }
+    #highlight-surface {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 10;
+      pointer-events: none;
+      touch-action: none;
+    }
+    #highlight-surface.enabled {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+    .highlight-rect {
+      position: absolute;
+      pointer-events: none;
+      border-radius: 3px;
+      mix-blend-mode: multiply;
+      transition: opacity 0.2s ease;
+    }
     #loading {
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -150,6 +168,7 @@ export function getPdfReaderHtml(
         <div class="page-shadow shadow-left"></div>
         <div class="page-shadow shadow-right"></div>
       </div>
+      <div id="highlight-surface"></div>
     </div>
   </div>
 
@@ -174,6 +193,19 @@ export function getPdfReaderHtml(
       var pendingPage = null;
       var pendingDirection = "none";
 
+      var currentViewport = null;
+      var currentTextContent = null;
+      var isHighlightMode = false;
+      var currentHighlightColor = "yellow";
+      var highlightColors = {
+        yellow: { hex: "#E5A800", rgba: "rgba(254, 218, 54, 0.42)" },
+        green: { hex: "#1EA755", rgba: "rgba(30, 167, 85, 0.38)" },
+        blue: { hex: "#2678D0", rgba: "rgba(38, 120, 208, 0.38)" },
+        pink: { hex: "#D83E7F", rgba: "rgba(216, 62, 127, 0.38)" }
+      };
+
+      var savedHighlights = []; // { page, x, y, w, h, color }
+
       var layerA = document.getElementById("layer-a");
       var layerB = document.getElementById("layer-b");
       var canvasA = document.getElementById("canvas-a");
@@ -182,6 +214,7 @@ export function getPdfReaderHtml(
       var ctxB = canvasB.getContext("2d");
       var loadingEl = document.getElementById("loading");
       var container = document.getElementById("container");
+      var hlSurface = document.getElementById("highlight-surface");
 
       var activeLayer = layerA;
       var idleLayer = layerB;
@@ -248,6 +281,27 @@ export function getPdfReaderHtml(
         post({ type: "error", message: (err && err.message) || "Could not parse PDF" });
       }
 
+      function redrawSavedHighlights() {
+        hlSurface.querySelectorAll(".saved-hl").forEach(function(el) {
+          el.remove();
+        });
+        var pageHls = savedHighlights.filter(function(h) { return h.page === curPage; });
+        var activeRect = activeCanvas.getBoundingClientRect();
+        var surfRect = hlSurface.getBoundingClientRect();
+
+        pageHls.forEach(function(h) {
+          var el = document.createElement("div");
+          el.className = "highlight-rect saved-hl";
+          var pal = highlightColors[h.color] || highlightColors.yellow;
+          el.style.backgroundColor = pal.rgba;
+          el.style.left = (activeRect.left - surfRect.left + (h.rx * activeRect.width)) + "px";
+          el.style.top = (activeRect.top - surfRect.top + (h.ry * activeRect.height)) + "px";
+          el.style.width = (h.rw * activeRect.width) + "px";
+          el.style.height = (h.rh * activeRect.height) + "px";
+          hlSurface.appendChild(el);
+        });
+      }
+
       function extractCurrentPageText() {
         if (!pdfDoc) {
           post({ type: "page_text_extracted", page: curPage, text: "", imageData: null });
@@ -293,6 +347,72 @@ export function getPdfReaderHtml(
         });
       }
 
+      function extractTextFromRect(box) {
+        if (!currentTextContent || !currentTextContent.items || !currentViewport) return "";
+        var items = currentTextContent.items;
+        var matched = [];
+        var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+
+        for (var i = 0; i < items.length; i++) {
+          var it = items[i];
+          if (!it.str || !it.str.trim()) continue;
+          var tx = it.transform[4];
+          var ty = it.transform[5];
+          var vpPoint = currentViewport.convertToViewportPoint(tx, ty);
+          var itemX = vpPoint[0] / dpr;
+          var itemY = vpPoint[1] / dpr;
+          var itemW = (it.width || 12) * (currentViewport.scale / (dpr * Math.abs(it.transform[0] || 1)));
+          var itemH = Math.abs(it.height || it.transform[3] || 12) * (currentViewport.scale / dpr);
+
+          var inX = (itemX + itemW >= box.x && itemX <= box.x + box.w);
+          var inY = (itemY >= box.y - 10 && itemY - itemH <= box.y + box.h + 10);
+
+          if (inX && inY) {
+            matched.push({
+              str: it.str,
+              x: itemX,
+              y: itemY
+            });
+          }
+        }
+
+        if (matched.length === 0) return "";
+
+        matched.sort(function(a, b) {
+          var diffY = a.y - b.y;
+          if (Math.abs(diffY) > 8) return diffY;
+          return a.x - b.x;
+        });
+
+        return matched.map(function(m) { return m.str; }).join(" ").replace(/\s+/g, " ").trim();
+      }
+
+      function extractImageSlice(box) {
+        try {
+          var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+          var sliceCanvas = document.createElement("canvas");
+          var sw = Math.max(10, Math.floor(box.w * dpr));
+          var sh = Math.max(10, Math.floor(box.h * dpr));
+          sliceCanvas.width = sw;
+          sliceCanvas.height = sh;
+          var sCtx = sliceCanvas.getContext("2d");
+          sCtx.drawImage(
+            activeCanvas,
+            Math.floor(box.x * dpr),
+            Math.floor(box.y * dpr),
+            sw,
+            sh,
+            0,
+            0,
+            sw,
+            sh
+          );
+          return sliceCanvas.toDataURL("image/jpeg", 0.85);
+        } catch (e) {
+          return null;
+        }
+      }
+
       function renderPage(num, direction) {
         if (!pdfDoc) return;
         if (num < 1) num = 1;
@@ -322,6 +442,14 @@ export function getPdfReaderHtml(
           var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
           var viewport = page.getViewport({ scale: scale * dpr });
+          currentViewport = viewport;
+
+          page.getTextContent().then(function(tc) {
+            currentTextContent = tc;
+          }).catch(function() {
+            currentTextContent = null;
+          });
+
           var renderCanvas = direction === "none" ? activeCanvas : idleCanvas;
           var renderCtx = direction === "none" ? activeCtx : idleCtx;
 
@@ -341,6 +469,7 @@ export function getPdfReaderHtml(
 
             if (direction === "none" || loadingEl) {
               hideLoading();
+              redrawSavedHighlights();
               post({
                 type: "page_changed",
                 page: curPage,
@@ -361,7 +490,6 @@ export function getPdfReaderHtml(
             var duration = 300;
 
             if (direction === "next") {
-              // Incoming page slides in from right over current page
               idleLayer.style.transition = "none";
               idleLayer.style.transform = "translate3d(100%, 0, 0)";
               idleLayer.style.opacity = "1";
@@ -393,12 +521,12 @@ export function getPdfReaderHtml(
                 activeLayer.style.zIndex = "1";
                 activeLayer.style.opacity = "0";
 
-                // Swap active & idle layers
                 var tempL = activeLayer; activeLayer = idleLayer; idleLayer = tempL;
                 var tempC = activeCanvas; activeCanvas = idleCanvas; idleCanvas = tempC;
                 var tempCtx = activeCtx; activeCtx = idleCtx; idleCtx = tempCtx;
 
                 isAnimating = false;
+                redrawSavedHighlights();
                 post({
                   type: "page_changed",
                   page: curPage,
@@ -415,7 +543,6 @@ export function getPdfReaderHtml(
               }, duration);
 
             } else {
-              // Prev: Current page lifts and slides right revealing previous page underneath
               idleLayer.style.transition = "none";
               idleLayer.style.transform = "translate3d(-20%, 0, 0) scale(0.98)";
               idleLayer.style.filter = "brightness(0.85)";
@@ -446,12 +573,12 @@ export function getPdfReaderHtml(
 
                 idleLayer.style.zIndex = "2";
 
-                // Swap active & idle layers
                 var tempL = activeLayer; activeLayer = idleLayer; idleLayer = tempL;
                 var tempC = activeCanvas; activeCanvas = idleCanvas; idleCanvas = tempC;
                 var tempCtx = activeCtx; activeCtx = idleCtx; idleCtx = tempCtx;
 
                 isAnimating = false;
+                redrawSavedHighlights();
                 post({
                   type: "page_changed",
                   page: curPage,
@@ -482,7 +609,6 @@ export function getPdfReaderHtml(
           for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
           pdfjsLib.getDocument({ data: buf }).promise.then(onPdfLoaded).catch(onPdfError);
         } else {
-          // Direct file URI streaming via native Chromium network layer (0 Java/JS bridge memory)
           var urlParam = {
             url: pdfSource,
             cMapPacked: true,
@@ -515,24 +641,33 @@ export function getPdfReaderHtml(
         onPdfError(e);
       }
 
-      // Tap zones: left 30% prev, right 30% next, center 40% toggle UI
+      // Gesture handling: ONLY deliberate horizontal swipe flips page (duration < 650ms, dist > 75px, not zoomed in)
       var touchStartX = 0;
       var touchStartY = 0;
+      var touchStartTime = 0;
 
       container.addEventListener("touchstart", function(e) {
+        if (isHighlightMode) return;
         if (e.touches && e.touches[0]) {
           touchStartX = e.touches[0].clientX;
           touchStartY = e.touches[0].clientY;
+          touchStartTime = Date.now();
         }
       }, { passive: true });
 
       container.addEventListener("touchend", function(e) {
+        if (isHighlightMode) return;
         if (!e.changedTouches || !e.changedTouches[0]) return;
         var diffX = e.changedTouches[0].clientX - touchStartX;
         var diffY = e.changedTouches[0].clientY - touchStartY;
+        var duration = Date.now() - touchStartTime;
 
-        // Horizontal swipe gesture
-        if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
+        // If zoomed in, NEVER flip page (prevents accidental flip when reading/panning zoomed text)
+        var zoomScale = (window.visualViewport && window.visualViewport.scale) || 1.0;
+        if (zoomScale > 1.05) return;
+
+        // Flip on swipe only: must be distinct horizontal movement
+        if (duration < 650 && Math.abs(diffX) > 75 && Math.abs(diffX) > Math.abs(diffY) * 2) {
           if (diffX < 0) {
             renderPage(curPage + 1, "next");
           } else {
@@ -541,17 +676,105 @@ export function getPdfReaderHtml(
         }
       }, { passive: true });
 
+      // Click only toggles UI - NEVER flips pages
       container.addEventListener("click", function(e) {
-        var width = window.innerWidth;
-        var x = e.clientX;
-        if (x < width * 0.3) {
-          renderPage(curPage - 1, "prev");
-        } else if (x > width * 0.7) {
-          renderPage(curPage + 1, "next");
-        } else {
-          post({ type: "toggle_ui" });
-        }
+        if (isHighlightMode) return;
+        post({ type: "toggle_ui" });
       });
+
+      // Highlighter drag gesture over active canvas
+      var hlStartX = 0;
+      var hlStartY = 0;
+      var liveHighlightEl = null;
+
+      hlSurface.addEventListener("touchstart", function(e) {
+        if (!isHighlightMode || !e.touches || !e.touches[0]) return;
+        var t = e.touches[0];
+        var sRect = hlSurface.getBoundingClientRect();
+        hlStartX = t.clientX - sRect.left;
+        hlStartY = t.clientY - sRect.top;
+
+        liveHighlightEl = document.createElement("div");
+        liveHighlightEl.className = "highlight-rect";
+        var pal = highlightColors[currentHighlightColor] || highlightColors.yellow;
+        liveHighlightEl.style.backgroundColor = pal.rgba;
+        liveHighlightEl.style.border = "1.5px dashed " + pal.hex;
+        liveHighlightEl.style.left = hlStartX + "px";
+        liveHighlightEl.style.top = hlStartY + "px";
+        liveHighlightEl.style.width = "0px";
+        liveHighlightEl.style.height = "0px";
+        hlSurface.appendChild(liveHighlightEl);
+      }, { passive: false });
+
+      hlSurface.addEventListener("touchmove", function(e) {
+        if (!isHighlightMode || !liveHighlightEl || !e.touches || !e.touches[0]) return;
+        e.preventDefault();
+        var t = e.touches[0];
+        var sRect = hlSurface.getBoundingClientRect();
+        var curX = t.clientX - sRect.left;
+        var curY = t.clientY - sRect.top;
+
+        var boxLeft = Math.min(hlStartX, curX);
+        var boxTop = Math.min(hlStartY, curY);
+        var boxWidth = Math.abs(curX - hlStartX);
+        var boxHeight = Math.abs(curY - hlStartY);
+
+        liveHighlightEl.style.left = boxLeft + "px";
+        liveHighlightEl.style.top = boxTop + "px";
+        liveHighlightEl.style.width = boxWidth + "px";
+        liveHighlightEl.style.height = boxHeight + "px";
+      }, { passive: false });
+
+      hlSurface.addEventListener("touchend", function(e) {
+        if (!isHighlightMode || !liveHighlightEl) return;
+        var sRect = hlSurface.getBoundingClientRect();
+        var cRect = activeCanvas.getBoundingClientRect();
+
+        var boxLeft = parseFloat(liveHighlightEl.style.left) || 0;
+        var boxTop = parseFloat(liveHighlightEl.style.top) || 0;
+        var boxW = parseFloat(liveHighlightEl.style.width) || 0;
+        var boxH = parseFloat(liveHighlightEl.style.height) || 0;
+
+        if (boxW < 18 || boxH < 14) {
+          // Tap or too small: remove
+          liveHighlightEl.remove();
+          liveHighlightEl = null;
+          return;
+        }
+
+        // Relative to canvas CSS coordinates
+        var relX = boxLeft - (cRect.left - sRect.left);
+        var relY = boxTop - (cRect.top - sRect.top);
+        var canvasBox = { x: relX, y: relY, w: boxW, h: boxH };
+
+        // Save relative coordinates for redraw
+        savedHighlights.push({
+          page: curPage,
+          color: currentHighlightColor,
+          rx: relX / cRect.width,
+          ry: relY / cRect.height,
+          rw: boxW / cRect.width,
+          rh: boxH / cRect.height
+        });
+
+        // Make live highlight solid
+        liveHighlightEl.style.border = "none";
+        liveHighlightEl.classList.add("saved-hl");
+        liveHighlightEl = null;
+
+        // Extract text in this rectangle
+        var extractedText = extractTextFromRect(canvasBox);
+        var imageSlice = extractedText ? null : extractImageSlice(canvasBox);
+
+        post({
+          type: "highlight_captured",
+          page: curPage,
+          text: extractedText,
+          color: currentHighlightColor,
+          imageData: imageSlice,
+          rect: canvasBox
+        });
+      }, { passive: false });
 
       // Handle native commands
       window.handleNativeMessage = function(data) {
@@ -571,6 +794,18 @@ export function getPdfReaderHtml(
             break;
           case "update_settings":
             if (data.theme) applyTheme(data.theme);
+            break;
+          case "set_highlight_mode":
+            isHighlightMode = !!data.enabled;
+            if (data.color) currentHighlightColor = data.color;
+            if (isHighlightMode) {
+              hlSurface.classList.add("enabled");
+            } else {
+              hlSurface.classList.remove("enabled");
+            }
+            break;
+          case "set_highlight_color":
+            if (data.color) currentHighlightColor = data.color;
             break;
         }
       };
