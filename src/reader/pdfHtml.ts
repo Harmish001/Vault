@@ -112,7 +112,7 @@ export function getPdfReaderHtml(
     #highlight-surface {
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
-      z-index: 10;
+      z-index: 15;
       pointer-events: none;
       touch-action: none;
     }
@@ -126,6 +126,96 @@ export function getPdfReaderHtml(
       border-radius: 3px;
       mix-blend-mode: multiply;
       transition: opacity 0.2s ease;
+    }
+    .hl-box {
+      position: absolute;
+      touch-action: none;
+      z-index: 25;
+      pointer-events: auto;
+    }
+    .hl-bg {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      border-radius: 3px;
+      mix-blend-mode: multiply;
+      pointer-events: none;
+    }
+    .hl-handle {
+      position: absolute;
+      width: 26px;
+      height: 26px;
+      border-radius: 13px;
+      background: #FFFFFF;
+      border: 2.5px solid #2678D0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      touch-action: none;
+      z-index: 30;
+    }
+    .handle-tl { top: -13px; left: -13px; }
+    .handle-tr { top: -13px; right: -13px; }
+    .handle-bl { bottom: -13px; left: -13px; }
+    .handle-br { bottom: -13px; right: -13px; }
+    .handle-t  { top: -13px; left: calc(50% - 15px); width: 30px; border-radius: 6px; }
+    .handle-b  { bottom: -13px; left: calc(50% - 15px); width: 30px; border-radius: 6px; }
+
+    .hl-action-bar {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(100% + 14px);
+      background: #1C1917;
+      color: #FFFFFF;
+      padding: 10px 14px;
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 230px;
+      max-width: 330px;
+      z-index: 35;
+      pointer-events: auto;
+    }
+    .hl-action-bar.pos-below {
+      bottom: auto;
+      top: calc(100% + 14px);
+    }
+    .hl-preview-text {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 12px;
+      line-height: 16px;
+      color: #E7E5E4;
+      max-height: 48px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+    .hl-btn-row {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+    }
+    .hl-action-btn {
+      border: none;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hl-btn-save {
+      background: #7A1F35;
+      color: #FFFFFF;
+      flex: 1;
+    }
+    .hl-btn-clear {
+      background: #44403C;
+      color: #D6D3D1;
     }
     #loading {
       position: absolute;
@@ -194,7 +284,10 @@ export function getPdfReaderHtml(
       var pendingDirection = "none";
 
       var currentViewport = null;
+      var currentUnscaledVp = null;
+      var currentScale = 1.0;
       var currentTextContent = null;
+
       var isHighlightMode = false;
       var currentHighlightColor = "yellow";
       var highlightColors = {
@@ -204,7 +297,7 @@ export function getPdfReaderHtml(
         pink: { hex: "#D83E7F", rgba: "rgba(216, 62, 127, 0.38)" }
       };
 
-      var savedHighlights = []; // { page, x, y, w, h, color }
+      var savedHighlights = []; // { page, rx, ry, rw, rh, color }
 
       var layerA = document.getElementById("layer-a");
       var layerB = document.getElementById("layer-b");
@@ -348,40 +441,58 @@ export function getPdfReaderHtml(
       }
 
       function extractTextFromRect(box) {
-        if (!currentTextContent || !currentTextContent.items || !currentViewport) return "";
+        if (!currentTextContent || !currentTextContent.items || !currentScale) return "";
+        var unscaledHeight = (currentUnscaledVp && currentUnscaledVp.height) || 800;
+        var scale = currentScale;
+
+        // Convert canvas CSS box coordinates to PDF user space
+        var boxPdfLeft = box.x / scale;
+        var boxPdfRight = (box.x + box.w) / scale;
+        var boxPdfTop = unscaledHeight - (box.y / scale);
+        var boxPdfBottom = unscaledHeight - ((box.y + box.h) / scale);
+
+        var minPdfX = Math.min(boxPdfLeft, boxPdfRight);
+        var maxPdfX = Math.max(boxPdfLeft, boxPdfRight);
+        var minPdfY = Math.min(boxPdfTop, boxPdfBottom);
+        var maxPdfY = Math.max(boxPdfTop, boxPdfBottom);
+
+        // Generous tolerance (6pt vertical, 4pt horizontal) for mobile finger highlights
+        var vTol = 6;
+        var hTol = 4;
+
         var items = currentTextContent.items;
         var matched = [];
-        var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
         for (var i = 0; i < items.length; i++) {
           var it = items[i];
           if (!it.str || !it.str.trim()) continue;
-          var tx = it.transform[4];
-          var ty = it.transform[5];
-          var vpPoint = currentViewport.convertToViewportPoint(tx, ty);
-          var itemX = vpPoint[0] / dpr;
-          var itemY = vpPoint[1] / dpr;
-          var itemW = (it.width || 12) * (currentViewport.scale / (dpr * Math.abs(it.transform[0] || 1)));
-          var itemH = Math.abs(it.height || it.transform[3] || 12) * (currentViewport.scale / dpr);
+          var itX1 = it.transform[4];
+          var itWidth = it.width || (it.str.length * 6);
+          var itX2 = itX1 + itWidth;
+          var itFontH = Math.abs(it.height || it.transform[3] || 10);
+          var itY1 = it.transform[5];
+          var itY2 = itY1 + itFontH;
 
-          var inX = (itemX + itemW >= box.x && itemX <= box.x + box.w);
-          var inY = (itemY >= box.y - 10 && itemY - itemH <= box.y + box.h + 10);
+          var overlapX = (itX2 >= minPdfX - hTol && itX1 <= maxPdfX + hTol);
+          var overlapY = (itY2 >= minPdfY - vTol && itY1 <= maxPdfY + vTol);
 
-          if (inX && inY) {
+          if (overlapX && overlapY) {
             matched.push({
               str: it.str,
-              x: itemX,
-              y: itemY
+              pdfX: itX1,
+              pdfY: itY1,
+              fontHeight: itFontH
             });
           }
         }
 
         if (matched.length === 0) return "";
 
+        // Sort top-to-bottom (higher PDF Y first), then left-to-right (lower PDF X first)
         matched.sort(function(a, b) {
-          var diffY = a.y - b.y;
-          if (Math.abs(diffY) > 8) return diffY;
-          return a.x - b.x;
+          var diffY = b.pdfY - a.pdfY;
+          if (Math.abs(diffY) > Math.min(a.fontHeight, b.fontHeight) * 0.5) return diffY;
+          return a.pdfX - b.pdfX;
         });
 
         return matched.map(function(m) { return m.str; }).join(" ").replace(/\s+/g, " ").trim();
@@ -398,8 +509,8 @@ export function getPdfReaderHtml(
           var sCtx = sliceCanvas.getContext("2d");
           sCtx.drawImage(
             activeCanvas,
-            Math.floor(box.x * dpr),
-            Math.floor(box.y * dpr),
+            Math.max(0, Math.floor(box.x * dpr)),
+            Math.max(0, Math.floor(box.y * dpr)),
             sw,
             sh,
             0,
@@ -430,6 +541,8 @@ export function getPdfReaderHtml(
           return;
         }
 
+        clearActiveAdjustableBox();
+
         rendering = true;
         var targetPageNum = num;
 
@@ -443,6 +556,8 @@ export function getPdfReaderHtml(
 
           var viewport = page.getViewport({ scale: scale * dpr });
           currentViewport = viewport;
+          currentUnscaledVp = unscaledVp;
+          currentScale = scale;
 
           page.getTextContent().then(function(tc) {
             currentTextContent = tc;
@@ -662,11 +777,9 @@ export function getPdfReaderHtml(
         var diffY = e.changedTouches[0].clientY - touchStartY;
         var duration = Date.now() - touchStartTime;
 
-        // If zoomed in, NEVER flip page (prevents accidental flip when reading/panning zoomed text)
         var zoomScale = (window.visualViewport && window.visualViewport.scale) || 1.0;
         if (zoomScale > 1.05) return;
 
-        // Flip on swipe only: must be distinct horizontal movement
         if (duration < 650 && Math.abs(diffX) > 75 && Math.abs(diffX) > Math.abs(diffY) * 2) {
           if (diffX < 0) {
             renderPage(curPage + 1, "next");
@@ -682,89 +795,142 @@ export function getPdfReaderHtml(
         post({ type: "toggle_ui" });
       });
 
-      // Highlighter drag gesture over active canvas
-      var hlStartX = 0;
-      var hlStartY = 0;
-      var liveHighlightEl = null;
+      // ─── Interactive & Resizable Highlighter Architecture ────────────────────
+      var activeAdjustableBox = null;
+      var currentBoxCoords = null; // { x, y, w, h }
+      var currentPreviewText = "";
+      var isDraggingHandle = false;
+      var dragHandleType = null;
+      var dragHandleStart = null;
+      var initialBoxOnDrag = null;
 
-      hlSurface.addEventListener("touchstart", function(e) {
-        if (!isHighlightMode || !e.touches || !e.touches[0]) return;
-        var t = e.touches[0];
-        var sRect = hlSurface.getBoundingClientRect();
-        hlStartX = t.clientX - sRect.left;
-        hlStartY = t.clientY - sRect.top;
+      function clearActiveAdjustableBox() {
+        if (activeAdjustableBox) {
+          activeAdjustableBox.remove();
+          activeAdjustableBox = null;
+          currentBoxCoords = null;
+        }
+      }
 
-        liveHighlightEl = document.createElement("div");
-        liveHighlightEl.className = "highlight-rect";
-        var pal = highlightColors[currentHighlightColor] || highlightColors.yellow;
-        liveHighlightEl.style.backgroundColor = pal.rgba;
-        liveHighlightEl.style.border = "1.5px dashed " + pal.hex;
-        liveHighlightEl.style.left = hlStartX + "px";
-        liveHighlightEl.style.top = hlStartY + "px";
-        liveHighlightEl.style.width = "0px";
-        liveHighlightEl.style.height = "0px";
-        hlSurface.appendChild(liveHighlightEl);
-      }, { passive: false });
+      function createAdjustableBox(surfX, surfY, surfW, surfH) {
+        clearActiveAdjustableBox();
 
-      hlSurface.addEventListener("touchmove", function(e) {
-        if (!isHighlightMode || !liveHighlightEl || !e.touches || !e.touches[0]) return;
-        e.preventDefault();
-        var t = e.touches[0];
-        var sRect = hlSurface.getBoundingClientRect();
-        var curX = t.clientX - sRect.left;
-        var curY = t.clientY - sRect.top;
-
-        var boxLeft = Math.min(hlStartX, curX);
-        var boxTop = Math.min(hlStartY, curY);
-        var boxWidth = Math.abs(curX - hlStartX);
-        var boxHeight = Math.abs(curY - hlStartY);
-
-        liveHighlightEl.style.left = boxLeft + "px";
-        liveHighlightEl.style.top = boxTop + "px";
-        liveHighlightEl.style.width = boxWidth + "px";
-        liveHighlightEl.style.height = boxHeight + "px";
-      }, { passive: false });
-
-      hlSurface.addEventListener("touchend", function(e) {
-        if (!isHighlightMode || !liveHighlightEl) return;
         var sRect = hlSurface.getBoundingClientRect();
         var cRect = activeCanvas.getBoundingClientRect();
+        var relX = surfX - (cRect.left - sRect.left);
+        var relY = surfY - (cRect.top - sRect.top);
+        currentBoxCoords = { x: relX, y: relY, w: surfW, h: surfH };
 
-        var boxLeft = parseFloat(liveHighlightEl.style.left) || 0;
-        var boxTop = parseFloat(liveHighlightEl.style.top) || 0;
-        var boxW = parseFloat(liveHighlightEl.style.width) || 0;
-        var boxH = parseFloat(liveHighlightEl.style.height) || 0;
+        var boxEl = document.createElement("div");
+        boxEl.className = "hl-box";
+        boxEl.style.left = surfX + "px";
+        boxEl.style.top = surfY + "px";
+        boxEl.style.width = surfW + "px";
+        boxEl.style.height = surfH + "px";
 
-        if (boxW < 18 || boxH < 14) {
-          // Tap or too small: remove
-          liveHighlightEl.remove();
-          liveHighlightEl = null;
-          return;
+        var pal = highlightColors[currentHighlightColor] || highlightColors.yellow;
+
+        var bg = document.createElement("div");
+        bg.className = "hl-bg";
+        bg.style.backgroundColor = pal.rgba;
+        bg.style.border = "1.5px solid " + pal.hex;
+        boxEl.appendChild(bg);
+
+        // Resize handles: 4 corners + top & bottom edge
+        var handles = ["tl", "tr", "bl", "br", "t", "b"];
+        handles.forEach(function(h) {
+          var hEl = document.createElement("div");
+          hEl.className = "hl-handle handle-" + h;
+          hEl.setAttribute("data-handle", h);
+          hEl.style.borderColor = pal.hex;
+
+          hEl.addEventListener("touchstart", function(ev) {
+            ev.stopPropagation();
+            if (!ev.touches || !ev.touches[0]) return;
+            isDraggingHandle = true;
+            dragHandleType = h;
+            dragHandleStart = { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+            initialBoxOnDrag = {
+              surfX: parseFloat(boxEl.style.left) || 0,
+              surfY: parseFloat(boxEl.style.top) || 0,
+              surfW: parseFloat(boxEl.style.width) || 0,
+              surfH: parseFloat(boxEl.style.height) || 0
+            };
+          }, { passive: false });
+
+          boxEl.appendChild(hEl);
+        });
+
+        // Floating action toolbar
+        var actionEl = document.createElement("div");
+        actionEl.className = "hl-action-bar" + (surfY < 80 ? " pos-below" : "");
+
+        var preview = document.createElement("div");
+        preview.className = "hl-preview-text";
+        actionEl.appendChild(preview);
+
+        var btnRow = document.createElement("div");
+        btnRow.className = "hl-btn-row";
+
+        var saveBtn = document.createElement("button");
+        saveBtn.className = "hl-action-btn hl-btn-save";
+        saveBtn.textContent = "✓ Save Highlight";
+        saveBtn.addEventListener("click", function(ev) {
+          ev.stopPropagation();
+          onCommitHighlight();
+        });
+
+        var clearBtn = document.createElement("button");
+        clearBtn.className = "hl-action-btn hl-btn-clear";
+        clearBtn.textContent = "✕ Clear";
+        clearBtn.addEventListener("click", function(ev) {
+          ev.stopPropagation();
+          clearActiveAdjustableBox();
+        });
+
+        btnRow.appendChild(saveBtn);
+        btnRow.appendChild(clearBtn);
+        actionEl.appendChild(btnRow);
+        boxEl.appendChild(actionEl);
+
+        hlSurface.appendChild(boxEl);
+        activeAdjustableBox = boxEl;
+
+        updateBoxPreview();
+      }
+
+      function updateBoxPreview() {
+        if (!activeAdjustableBox || !currentBoxCoords) return;
+        var text = extractTextFromRect(currentBoxCoords);
+        currentPreviewText = text;
+        var prevEl = activeAdjustableBox.querySelector(".hl-preview-text");
+        if (prevEl) {
+          if (text && text.trim()) {
+            prevEl.textContent = "“" + text.slice(0, 120) + (text.length > 120 ? "…”" : "”");
+          } else {
+            prevEl.textContent = "Section selected (tap Save to run OCR)";
+          }
         }
+      }
 
-        // Relative to canvas CSS coordinates
-        var relX = boxLeft - (cRect.left - sRect.left);
-        var relY = boxTop - (cRect.top - sRect.top);
-        var canvasBox = { x: relX, y: relY, w: boxW, h: boxH };
+      function onCommitHighlight() {
+        if (!currentBoxCoords) return;
+        var cRect = activeCanvas.getBoundingClientRect();
 
-        // Save relative coordinates for redraw
         savedHighlights.push({
           page: curPage,
           color: currentHighlightColor,
-          rx: relX / cRect.width,
-          ry: relY / cRect.height,
-          rw: boxW / cRect.width,
-          rh: boxH / cRect.height
+          rx: currentBoxCoords.x / cRect.width,
+          ry: currentBoxCoords.y / cRect.height,
+          rw: currentBoxCoords.w / cRect.width,
+          rh: currentBoxCoords.h / cRect.height
         });
 
-        // Make live highlight solid
-        liveHighlightEl.style.border = "none";
-        liveHighlightEl.classList.add("saved-hl");
-        liveHighlightEl = null;
+        var extractedText = extractTextFromRect(currentBoxCoords);
+        var imageSlice = extractedText ? null : extractImageSlice(currentBoxCoords);
 
-        // Extract text in this rectangle
-        var extractedText = extractTextFromRect(canvasBox);
-        var imageSlice = extractedText ? null : extractImageSlice(canvasBox);
+        clearActiveAdjustableBox();
+        redrawSavedHighlights();
 
         post({
           type: "highlight_captured",
@@ -772,8 +938,161 @@ export function getPdfReaderHtml(
           text: extractedText,
           color: currentHighlightColor,
           imageData: imageSlice,
-          rect: canvasBox
+          rect: currentBoxCoords
         });
+      }
+
+      // Handle touch interaction for drawing & resizing
+      var hlDrawStartX = 0;
+      var hlDrawStartY = 0;
+      var liveDrawBox = null;
+
+      hlSurface.addEventListener("touchstart", function(e) {
+        if (!isHighlightMode || !e.touches || !e.touches[0]) return;
+        if (isDraggingHandle) return;
+
+        // If user tapped outside an active box, clear it
+        if (activeAdjustableBox) {
+          var aRect = activeAdjustableBox.getBoundingClientRect();
+          var tX = e.touches[0].clientX;
+          var tY = e.touches[0].clientY;
+          if (tX < aRect.left || tX > aRect.right || tY < aRect.top || tY > aRect.bottom) {
+            clearActiveAdjustableBox();
+          } else {
+            return;
+          }
+        }
+
+        var t = e.touches[0];
+        var sRect = hlSurface.getBoundingClientRect();
+        hlDrawStartX = t.clientX - sRect.left;
+        hlDrawStartY = t.clientY - sRect.top;
+
+        liveDrawBox = document.createElement("div");
+        liveDrawBox.className = "highlight-rect";
+        var pal = highlightColors[currentHighlightColor] || highlightColors.yellow;
+        liveDrawBox.style.backgroundColor = pal.rgba;
+        liveDrawBox.style.border = "1.5px dashed " + pal.hex;
+        liveDrawBox.style.left = hlDrawStartX + "px";
+        liveDrawBox.style.top = hlDrawStartY + "px";
+        liveDrawBox.style.width = "0px";
+        liveDrawBox.style.height = "0px";
+        hlSurface.appendChild(liveDrawBox);
+      }, { passive: false });
+
+      hlSurface.addEventListener("touchmove", function(e) {
+        if (!isHighlightMode || !e.touches || !e.touches[0]) return;
+        e.preventDefault();
+
+        if (isDraggingHandle && activeAdjustableBox && dragHandleStart && initialBoxOnDrag) {
+          var curTouch = e.touches[0];
+          var deltaX = curTouch.clientX - dragHandleStart.x;
+          var deltaY = curTouch.clientY - dragHandleStart.y;
+
+          var newX = initialBoxOnDrag.surfX;
+          var newY = initialBoxOnDrag.surfY;
+          var newW = initialBoxOnDrag.surfW;
+          var newH = initialBoxOnDrag.surfH;
+
+          switch (dragHandleType) {
+            case "br":
+              newW = Math.max(20, initialBoxOnDrag.surfW + deltaX);
+              newH = Math.max(16, initialBoxOnDrag.surfH + deltaY);
+              break;
+            case "bl":
+              var rightEdge = initialBoxOnDrag.surfX + initialBoxOnDrag.surfW;
+              newX = Math.min(rightEdge - 20, initialBoxOnDrag.surfX + deltaX);
+              newW = rightEdge - newX;
+              newH = Math.max(16, initialBoxOnDrag.surfH + deltaY);
+              break;
+            case "tr":
+              var bottomEdge = initialBoxOnDrag.surfY + initialBoxOnDrag.surfH;
+              newY = Math.min(bottomEdge - 16, initialBoxOnDrag.surfY + deltaY);
+              newH = bottomEdge - newY;
+              newW = Math.max(20, initialBoxOnDrag.surfW + deltaX);
+              break;
+            case "tl":
+              var rE = initialBoxOnDrag.surfX + initialBoxOnDrag.surfW;
+              var bE = initialBoxOnDrag.surfY + initialBoxOnDrag.surfH;
+              newX = Math.min(rE - 20, initialBoxOnDrag.surfX + deltaX);
+              newY = Math.min(bE - 16, initialBoxOnDrag.surfY + deltaY);
+              newW = rE - newX;
+              newH = bE - newY;
+              break;
+            case "t":
+              var bEdge = initialBoxOnDrag.surfY + initialBoxOnDrag.surfH;
+              newY = Math.min(bEdge - 16, initialBoxOnDrag.surfY + deltaY);
+              newH = bEdge - newY;
+              break;
+            case "b":
+              newH = Math.max(16, initialBoxOnDrag.surfH + deltaY);
+              break;
+          }
+
+          activeAdjustableBox.style.left = newX + "px";
+          activeAdjustableBox.style.top = newY + "px";
+          activeAdjustableBox.style.width = newW + "px";
+          activeAdjustableBox.style.height = newH + "px";
+
+          var sRect = hlSurface.getBoundingClientRect();
+          var cRect = activeCanvas.getBoundingClientRect();
+          currentBoxCoords = {
+            x: newX - (cRect.left - sRect.left),
+            y: newY - (cRect.top - sRect.top),
+            w: newW,
+            h: newH
+          };
+
+          updateBoxPreview();
+          return;
+        }
+
+        if (liveDrawBox) {
+          var t = e.touches[0];
+          var sRect = hlSurface.getBoundingClientRect();
+          var curX = t.clientX - sRect.left;
+          var curY = t.clientY - sRect.top;
+
+          var boxLeft = Math.min(hlDrawStartX, curX);
+          var boxTop = Math.min(hlDrawStartY, curY);
+          var boxWidth = Math.abs(curX - hlDrawStartX);
+          var boxHeight = Math.abs(curY - hlDrawStartY);
+
+          liveDrawBox.style.left = boxLeft + "px";
+          liveDrawBox.style.top = boxTop + "px";
+          liveDrawBox.style.width = boxWidth + "px";
+          liveDrawBox.style.height = boxHeight + "px";
+        }
+      }, { passive: false });
+
+      hlSurface.addEventListener("touchend", function(e) {
+        if (!isHighlightMode) return;
+
+        if (isDraggingHandle) {
+          isDraggingHandle = false;
+          dragHandleType = null;
+          dragHandleStart = null;
+          initialBoxOnDrag = null;
+          updateBoxPreview();
+          return;
+        }
+
+        if (!liveDrawBox) return;
+
+        var boxLeft = parseFloat(liveDrawBox.style.left) || 0;
+        var boxTop = parseFloat(liveDrawBox.style.top) || 0;
+        var boxW = parseFloat(liveDrawBox.style.width) || 0;
+        var boxH = parseFloat(liveDrawBox.style.height) || 0;
+
+        liveDrawBox.remove();
+        liveDrawBox = null;
+
+        if (boxW < 20 || boxH < 14) {
+          return;
+        }
+
+        // Create the adjustable box with resize handles and action toolbar
+        createAdjustableBox(boxLeft, boxTop, boxW, boxH);
       }, { passive: false });
 
       // Handle native commands
@@ -802,6 +1121,7 @@ export function getPdfReaderHtml(
               hlSurface.classList.add("enabled");
             } else {
               hlSurface.classList.remove("enabled");
+              clearActiveAdjustableBox();
             }
             break;
           case "set_highlight_color":
