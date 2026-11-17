@@ -52,6 +52,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const { bookId } = route.params;
   const {
     books,
+    quotes,
     updateBookProgress,
     readerSettings,
     updateReaderSettings,
@@ -63,6 +64,20 @@ export default function BookReaderScreen({ navigation, route }: Props) {
 
   const insets = useSafeAreaInsets();
   const webviewRef = useRef<any>(null);
+  const lastCapturedRectRef = useRef<{ rx: number; ry: number; rw: number; rh: number } | null>(null);
+
+  const initialPdfHighlights = useRef(
+    quotes
+      .filter((q) => q.bookId === bookId && q.pdfPage && q.pdfRect)
+      .map((q) => ({
+        page: q.pdfPage!,
+        color: q.color,
+        rx: q.pdfRect!.rx,
+        ry: q.pdfRect!.ry,
+        rw: q.pdfRect!.rw,
+        rh: q.pdfRect!.rh,
+      }))
+  );
 
   // Active book
   const book = useMemo(() => books.find((b) => b.id === bookId), [books, bookId]);
@@ -337,12 +352,17 @@ export default function BookReaderScreen({ navigation, route }: Props) {
             if (data.cfiRange) {
               selectedCfiRangeRef.current = data.cfiRange;
             }
+            if (data.rect) {
+              lastCapturedRectRef.current = data.rect;
+            }
 
             if (capText) {
               setNoteText(capText);
               setNoteModalVisible(true);
             } else if (data.imageData) {
               lastPageImageDataRef.current = data.imageData;
+              setNoteText("");
+              setNoteModalVisible(true);
               handleRunOcrOnSnippet(data.imageData);
             } else {
               setNoteText("");
@@ -433,12 +453,8 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   // Run on-device OCR on a cropped highlight slice
   const handleRunOcrOnSnippet = useCallback(
     async (b64Data: string) => {
-      if (!ocrSupported) {
-        setNoteText("");
-        setNoteModalVisible(true);
-        return;
-      }
-      ToastAndroid.show("Reading highlighted section…", ToastAndroid.SHORT);
+      setNoteModalVisible(true);
+      if (!ocrSupported) return;
       setOcrRunning(true);
       try {
         const tempUri = `${FileSystem.cacheDirectory}ocr_hl_${Date.now()}.jpg`;
@@ -451,14 +467,11 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         if (recognized && recognized.trim()) {
           setNoteText(recognized.trim());
           ToastAndroid.show("Highlighted text recognized via OCR", ToastAndroid.SHORT);
-        } else {
-          setNoteText("");
         }
       } catch (e) {
-        setNoteText("");
+        console.warn("OCR snippet error", e);
       } finally {
         setOcrRunning(false);
-        setNoteModalVisible(true);
       }
     },
     []
@@ -522,6 +535,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         color: noteColor,
         userNote: cleanComment || null,
         pdfPage: isPdf ? (pageInfo.page || 1) : null,
+        pdfRect: isPdf ? lastCapturedRectRef.current : null,
         epubCfiRange: !isPdf ? selectedCfiRangeRef.current : null,
         pageLabel,
         source: "reader",
@@ -539,8 +553,21 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       setNoteText("");
       setNoteUserComment("");
       selectedCfiRangeRef.current = null;
+      lastCapturedRectRef.current = null;
     } catch (err: any) {
       Alert.alert("Could not save note", err.message || "Failed to save note.");
+    }
+  };
+
+  // Dismiss Note Modal and clean up temporary highlight if user cancels
+  const handleDismissNoteModal = () => {
+    setNoteModalVisible(false);
+    setNoteText("");
+    setNoteUserComment("");
+    selectedCfiRangeRef.current = null;
+    if (book?.type === "pdf" && lastCapturedRectRef.current) {
+      sendToWebview("cancel_last_highlight");
+      lastCapturedRectRef.current = null;
     }
   };
 
@@ -557,7 +584,8 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         decryptedUri,
         false,
         initialPdfPage.current,
-        initialSettings.current.theme
+        initialSettings.current.theme,
+        initialPdfHighlights.current
       );
     }
     return getReaderHtml(
@@ -1167,9 +1195,9 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         visible={noteModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setNoteModalVisible(false)}
+        onRequestClose={handleDismissNoteModal}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setNoteModalVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={handleDismissNoteModal}>
           <Pressable
             style={[styles.noteSheetContainer, { backgroundColor: theme.headerBg, borderColor: theme.border }]}
             onPress={(e) => e.stopPropagation()}
@@ -1183,7 +1211,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                     : (chapterLabel || book?.title || "Note")}
                 </Text>
               </View>
-              <Pressable onPress={() => setNoteModalVisible(false)} hitSlop={8}>
+              <Pressable onPress={handleDismissNoteModal} hitSlop={8}>
                 <Feather name="x" size={20} color={theme.text} />
               </Pressable>
             </View>
@@ -1219,22 +1247,38 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                 )}
               </View>
 
-              <TextInput
-                value={noteText}
-                onChangeText={setNoteText}
-                placeholder={book?.type === "pdf" ? "Extracted page text or enter quote..." : "Enter or paste quote text..."}
-                placeholderTextColor={colors.muted}
-                multiline
-                numberOfLines={4}
-                style={[
-                  styles.noteTextInput,
-                  {
-                    color: theme.text,
-                    backgroundColor: theme.bg,
-                    borderColor: theme.border,
-                  },
-                ]}
-              />
+              <View style={styles.textInputWrapper}>
+                <TextInput
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  placeholder={
+                    ocrRunning
+                      ? "Recognizing text via OCR…"
+                      : book?.type === "pdf"
+                      ? "Extracted text or type quote…"
+                      : "Enter or paste quote text…"
+                  }
+                  placeholderTextColor={colors.muted}
+                  multiline
+                  numberOfLines={4}
+                  style={[
+                    styles.noteTextInput,
+                    {
+                      color: theme.text,
+                      backgroundColor: theme.bg,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                />
+                {ocrRunning && (
+                  <View style={styles.ocrSnippetBadge}>
+                    <ActivityIndicator size="small" color={theme.activeIcon} />
+                    <Text style={[styles.ocrSnippetBadgeText, { color: theme.activeIcon }]}>
+                      Reading text with OCR…
+                    </Text>
+                  </View>
+                )}
+              </View>
 
               {/* Color Selector */}
               <Text style={[styles.settingSectionLabel, { color: theme.text, marginTop: 14 }]}>
@@ -1288,7 +1332,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
               {/* Action Buttons */}
               <View style={styles.noteActionRow}>
                 <Pressable
-                  onPress={() => setNoteModalVisible(false)}
+                  onPress={handleDismissNoteModal}
                   style={[styles.noteCancelBtn, { borderColor: theme.border, backgroundColor: theme.bg }]}
                 >
                   <Text style={[styles.noteCancelText, { color: theme.text }]}>Cancel</Text>
@@ -1643,6 +1687,25 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
     color: colors.primary,
+  },
+  textInputWrapper: {
+    position: "relative",
+  },
+  ocrSnippetBadge: {
+    position: "absolute",
+    bottom: 8,
+    right: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    backgroundColor: "rgba(0,0,0,0.06)",
+  },
+  ocrSnippetBadgeText: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
   },
   noteTextInput: {
     fontFamily: fonts.body,

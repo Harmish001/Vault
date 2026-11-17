@@ -6,7 +6,15 @@ export function getPdfReaderHtml(
   pdfUriOrBase64: string,
   isBase64: boolean,
   initialPage: number,
-  themeName: ReaderTheme
+  themeName: ReaderTheme,
+  initialHighlights?: Array<{
+    page: number;
+    color: string;
+    rx: number;
+    ry: number;
+    rw: number;
+    rh: number;
+  }>
 ): string {
   const theme = THEME_PALETTES[themeName] || THEME_PALETTES.light;
   const isDark = themeName === "dark" || themeName === "black";
@@ -124,7 +132,7 @@ export function getPdfReaderHtml(
       position: absolute;
       pointer-events: none;
       border-radius: 3px;
-      mix-blend-mode: multiply;
+      z-index: 18;
       transition: opacity 0.2s ease;
     }
     .hl-box {
@@ -137,7 +145,6 @@ export function getPdfReaderHtml(
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
       border-radius: 3px;
-      mix-blend-mode: multiply;
       pointer-events: none;
     }
     .hl-handle {
@@ -160,25 +167,17 @@ export function getPdfReaderHtml(
 
     .hl-action-bar {
       position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
-      bottom: calc(100% + 14px);
       background: #1C1917;
       color: #FFFFFF;
       padding: 10px 14px;
       border-radius: 12px;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      box-shadow: 0 6px 22px rgba(0,0,0,0.45);
       display: flex;
       flex-direction: column;
       gap: 8px;
-      min-width: 230px;
-      max-width: 330px;
-      z-index: 35;
+      z-index: 40;
       pointer-events: auto;
-    }
-    .hl-action-bar.pos-below {
-      bottom: auto;
-      top: calc(100% + 14px);
+      touch-action: auto;
     }
     .hl-preview-text {
       font-family: system-ui, -apple-system, sans-serif;
@@ -291,13 +290,13 @@ export function getPdfReaderHtml(
       var isHighlightMode = false;
       var currentHighlightColor = "yellow";
       var highlightColors = {
-        yellow: { hex: "#E5A800", rgba: "rgba(254, 218, 54, 0.42)" },
-        green: { hex: "#1EA755", rgba: "rgba(30, 167, 85, 0.38)" },
-        blue: { hex: "#2678D0", rgba: "rgba(38, 120, 208, 0.38)" },
-        pink: { hex: "#D83E7F", rgba: "rgba(216, 62, 127, 0.38)" }
+        yellow: { hex: "#E5A800", rgba: "rgba(229, 168, 0, 0.40)" },
+        green: { hex: "#1EA755", rgba: "rgba(30, 167, 85, 0.40)" },
+        blue: { hex: "#2678D0", rgba: "rgba(38, 120, 208, 0.40)" },
+        pink: { hex: "#D83E7F", rgba: "rgba(216, 62, 127, 0.40)" }
       };
 
-      var savedHighlights = []; // { page, rx, ry, rw, rh, color }
+      var savedHighlights = ${JSON.stringify(initialHighlights || [])}; // { page, rx, ry, rw, rh, color }
 
       var layerA = document.getElementById("layer-a");
       var layerB = document.getElementById("layer-b");
@@ -387,6 +386,7 @@ export function getPdfReaderHtml(
           el.className = "highlight-rect saved-hl";
           var pal = highlightColors[h.color] || highlightColors.yellow;
           el.style.backgroundColor = pal.rgba;
+          el.style.borderBottom = "2.5px solid " + pal.hex;
           el.style.left = (activeRect.left - surfRect.left + (h.rx * activeRect.width)) + "px";
           el.style.top = (activeRect.top - surfRect.top + (h.ry * activeRect.height)) + "px";
           el.style.width = (h.rw * activeRect.width) + "px";
@@ -797,6 +797,7 @@ export function getPdfReaderHtml(
 
       // ─── Interactive & Resizable Highlighter Architecture ────────────────────
       var activeAdjustableBox = null;
+      var activeActionBar = null;
       var currentBoxCoords = null; // { x, y, w, h }
       var currentPreviewText = "";
       var isDraggingHandle = false;
@@ -805,10 +806,39 @@ export function getPdfReaderHtml(
       var initialBoxOnDrag = null;
 
       function clearActiveAdjustableBox() {
+        if (activeActionBar) {
+          activeActionBar.remove();
+          activeActionBar = null;
+        }
         if (activeAdjustableBox) {
           activeAdjustableBox.remove();
           activeAdjustableBox = null;
-          currentBoxCoords = null;
+        }
+        currentBoxCoords = null;
+        currentPreviewText = "";
+      }
+
+      function repositionActionBar() {
+        if (!activeActionBar || !activeAdjustableBox) return;
+        var bLeft = parseFloat(activeAdjustableBox.style.left) || 0;
+        var bTop = parseFloat(activeAdjustableBox.style.top) || 0;
+        var bWidth = parseFloat(activeAdjustableBox.style.width) || 0;
+        var bHeight = parseFloat(activeAdjustableBox.style.height) || 0;
+        var sWidth = hlSurface.clientWidth || window.innerWidth;
+
+        var barWidth = Math.min(300, sWidth - 28);
+        var centerX = bLeft + (bWidth / 2);
+        var targetLeft = centerX - (barWidth / 2);
+        targetLeft = Math.max(14, Math.min(sWidth - barWidth - 14, targetLeft));
+
+        activeActionBar.style.width = barWidth + "px";
+        activeActionBar.style.left = targetLeft + "px";
+
+        // Place above if room, else below
+        if (bTop > 88) {
+          activeActionBar.style.top = (bTop - 80) + "px";
+        } else {
+          activeActionBar.style.top = (bTop + bHeight + 14) + "px";
         }
       }
 
@@ -861,9 +891,23 @@ export function getPdfReaderHtml(
           boxEl.appendChild(hEl);
         });
 
-        // Floating action toolbar
+        hlSurface.appendChild(boxEl);
+        activeAdjustableBox = boxEl;
+
+        // Floating action toolbar directly attached to hlSurface
         var actionEl = document.createElement("div");
-        actionEl.className = "hl-action-bar" + (surfY < 80 ? " pos-below" : "");
+        actionEl.className = "hl-action-bar";
+
+        // Prevent touch bubbling to drawing surface
+        actionEl.addEventListener("touchstart", function(ev) {
+          ev.stopPropagation();
+        }, { passive: false });
+        actionEl.addEventListener("touchmove", function(ev) {
+          ev.stopPropagation();
+        }, { passive: false });
+        actionEl.addEventListener("touchend", function(ev) {
+          ev.stopPropagation();
+        }, { passive: false });
 
         var preview = document.createElement("div");
         preview.className = "hl-preview-text";
@@ -875,40 +919,65 @@ export function getPdfReaderHtml(
         var saveBtn = document.createElement("button");
         saveBtn.className = "hl-action-btn hl-btn-save";
         saveBtn.textContent = "✓ Save Highlight";
-        saveBtn.addEventListener("click", function(ev) {
-          ev.stopPropagation();
+
+        var isCommitted = false;
+        function handleCommit(ev) {
+          if (ev) {
+            ev.stopPropagation();
+            if (ev.preventDefault) ev.preventDefault();
+          }
+          if (isCommitted) return;
+          isCommitted = true;
           onCommitHighlight();
-        });
+        }
+
+        saveBtn.addEventListener("touchstart", function(ev) {
+          ev.stopPropagation();
+        }, { passive: false });
+        saveBtn.addEventListener("touchend", handleCommit, { passive: false });
+        saveBtn.addEventListener("click", handleCommit);
 
         var clearBtn = document.createElement("button");
         clearBtn.className = "hl-action-btn hl-btn-clear";
         clearBtn.textContent = "✕ Clear";
-        clearBtn.addEventListener("click", function(ev) {
-          ev.stopPropagation();
+
+        function handleClear(ev) {
+          if (ev) {
+            ev.stopPropagation();
+            if (ev.preventDefault) ev.preventDefault();
+          }
           clearActiveAdjustableBox();
-        });
+        }
+
+        clearBtn.addEventListener("touchstart", function(ev) {
+          ev.stopPropagation();
+        }, { passive: false });
+        clearBtn.addEventListener("touchend", handleClear, { passive: false });
+        clearBtn.addEventListener("click", handleClear);
 
         btnRow.appendChild(saveBtn);
         btnRow.appendChild(clearBtn);
         actionEl.appendChild(btnRow);
-        boxEl.appendChild(actionEl);
 
-        hlSurface.appendChild(boxEl);
-        activeAdjustableBox = boxEl;
+        hlSurface.appendChild(actionEl);
+        activeActionBar = actionEl;
 
         updateBoxPreview();
+        repositionActionBar();
       }
 
       function updateBoxPreview() {
         if (!activeAdjustableBox || !currentBoxCoords) return;
         var text = extractTextFromRect(currentBoxCoords);
         currentPreviewText = text;
-        var prevEl = activeAdjustableBox.querySelector(".hl-preview-text");
-        if (prevEl) {
-          if (text && text.trim()) {
-            prevEl.textContent = "“" + text.slice(0, 120) + (text.length > 120 ? "…”" : "”");
-          } else {
-            prevEl.textContent = "Section selected (tap Save to run OCR)";
+        if (activeActionBar) {
+          var prevEl = activeActionBar.querySelector(".hl-preview-text");
+          if (prevEl) {
+            if (text && text.trim()) {
+              prevEl.textContent = "“" + text.slice(0, 120) + (text.length > 120 ? "…”" : "”");
+            } else {
+              prevEl.textContent = "Section selected (tap Save to run OCR)";
+            }
           }
         }
       }
@@ -917,14 +986,16 @@ export function getPdfReaderHtml(
         if (!currentBoxCoords) return;
         var cRect = activeCanvas.getBoundingClientRect();
 
-        savedHighlights.push({
+        var highlightItem = {
           page: curPage,
           color: currentHighlightColor,
           rx: currentBoxCoords.x / cRect.width,
           ry: currentBoxCoords.y / cRect.height,
           rw: currentBoxCoords.w / cRect.width,
           rh: currentBoxCoords.h / cRect.height
-        });
+        };
+
+        savedHighlights.push(highlightItem);
 
         var extractedText = extractTextFromRect(currentBoxCoords);
         var imageSlice = extractedText ? null : extractImageSlice(currentBoxCoords);
@@ -938,7 +1009,7 @@ export function getPdfReaderHtml(
           text: extractedText,
           color: currentHighlightColor,
           imageData: imageSlice,
-          rect: currentBoxCoords
+          rect: highlightItem
         });
       }
 
@@ -951,16 +1022,23 @@ export function getPdfReaderHtml(
         if (!isHighlightMode || !e.touches || !e.touches[0]) return;
         if (isDraggingHandle) return;
 
-        // If user tapped outside an active box, clear it
+        // If touched inside action bar or handle, ignore completely
+        if (e.target && (e.target.closest(".hl-action-bar") || e.target.closest(".hl-handle"))) {
+          return;
+        }
+
+        // If user tapped on/near active box or action bar, keep it active
         if (activeAdjustableBox) {
           var aRect = activeAdjustableBox.getBoundingClientRect();
+          var actRect = activeActionBar ? activeActionBar.getBoundingClientRect() : null;
           var tX = e.touches[0].clientX;
           var tY = e.touches[0].clientY;
-          if (tX < aRect.left || tX > aRect.right || tY < aRect.top || tY > aRect.bottom) {
-            clearActiveAdjustableBox();
-          } else {
+          var inBox = (tX >= aRect.left - 5 && tX <= aRect.right + 5 && tY >= aRect.top - 5 && tY <= aRect.bottom + 5);
+          var inAct = actRect && (tX >= actRect.left - 10 && tX <= actRect.right + 10 && tY >= actRect.top - 10 && tY <= actRect.bottom + 10);
+          if (inBox || inAct) {
             return;
           }
+          clearActiveAdjustableBox();
         }
 
         var t = e.touches[0];
@@ -1044,6 +1122,7 @@ export function getPdfReaderHtml(
           };
 
           updateBoxPreview();
+          repositionActionBar();
           return;
         }
 
@@ -1074,6 +1153,7 @@ export function getPdfReaderHtml(
           dragHandleStart = null;
           initialBoxOnDrag = null;
           updateBoxPreview();
+          repositionActionBar();
           return;
         }
 
@@ -1126,6 +1206,18 @@ export function getPdfReaderHtml(
             break;
           case "set_highlight_color":
             if (data.color) currentHighlightColor = data.color;
+            break;
+          case "cancel_last_highlight":
+            if (savedHighlights.length > 0) {
+              savedHighlights.pop();
+              redrawSavedHighlights();
+            }
+            break;
+          case "add_highlight":
+            if (data.highlight) {
+              savedHighlights.push(data.highlight);
+              redrawSavedHighlights();
+            }
             break;
         }
       };
