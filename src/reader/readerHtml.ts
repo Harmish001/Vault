@@ -126,6 +126,16 @@ export function getReaderHtml(
       var initialCfi = ${JSON.stringify(initialCfi)};
       var cachedLocations = ${cachedLocationsJson ? JSON.stringify(cachedLocationsJson) : "null"};
 
+      var isHighlightMode = false;
+      var currentHighlightColor = "yellow";
+      var highlightColorHex = "#E5A800";
+      var highlightColorMap = {
+        yellow: "#E5A800",
+        green: "#1EA755",
+        blue: "#2678D0",
+        pink: "#D83E7F"
+      };
+
       var book = null;
       var rendition = null;
       var loadingEl = document.getElementById("loading");
@@ -208,10 +218,13 @@ export function getReaderHtml(
           var touchStartX = 0;
           var touchStartY = 0;
 
+          var touchStartTime = 0;
+
           doc.addEventListener("touchstart", function(e) {
             if (e.touches && e.touches[0]) {
               touchStartX = e.touches[0].clientX;
               touchStartY = e.touches[0].clientY;
+              touchStartTime = Date.now();
             }
           }, { passive: true });
 
@@ -219,9 +232,10 @@ export function getReaderHtml(
             if (!e.changedTouches || !e.changedTouches[0]) return;
             var diffX = e.changedTouches[0].clientX - touchStartX;
             var diffY = e.changedTouches[0].clientY - touchStartY;
+            var duration = Date.now() - touchStartTime;
 
-            // Horizontal swipe with minimum 40px delta
-            if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
+            // Deliberate horizontal swipe only: > 75px, < 650ms, distinct horizontal gesture
+            if (duration < 650 && Math.abs(diffX) > 75 && Math.abs(diffX) > Math.abs(diffY) * 2) {
               if (diffX < 0) {
                 turnPage("next");
               } else {
@@ -242,18 +256,7 @@ export function getReaderHtml(
             }
             if (target && target.href) return; // let link handle it
 
-            // Tap zones: left 30% prev, right 30% next, center 40% toggle UI
-            var width = doc.documentElement.clientWidth || window.innerWidth;
-            var x = e.clientX;
-            if (currentSettings.tapZonesEnabled !== false) {
-              if (x < width * 0.3) {
-                turnPage("prev");
-                return;
-              } else if (x > width * 0.7) {
-                turnPage("next");
-                return;
-              }
-            }
+            // Click only toggles UI - NEVER flips pages (as requested)
             post({ type: "toggle_ui" });
           });
         });
@@ -275,11 +278,25 @@ export function getReaderHtml(
           try {
             var text = rendition.getRange(cfiRange).toString();
             if (text && text.trim().length > 0) {
-              post({
-                type: "text_selected",
-                cfiRange: cfiRange,
-                text: text.trim()
-              });
+              var trimmed = text.trim();
+              if (isHighlightMode) {
+                var colorHex = highlightColorMap[currentHighlightColor] || "#E5A800";
+                try {
+                  rendition.annotations.highlight(cfiRange, {}, function(e) {}, "", { fill: colorHex, "fill-opacity": "0.38" });
+                } catch (he) {}
+                post({
+                  type: "highlight_captured",
+                  cfiRange: cfiRange,
+                  text: trimmed,
+                  color: currentHighlightColor
+                });
+              } else {
+                post({
+                  type: "text_selected",
+                  cfiRange: cfiRange,
+                  text: trimmed
+                });
+              }
             }
           } catch (e) {}
         });
@@ -404,6 +421,15 @@ export function getReaderHtml(
                 rendition.annotations.highlight(data.cfiRange, {}, function(e) {}, "", { fill: data.color || "#F9E076" });
               } catch (e) {}
             }
+            break;
+          case "set_highlight_mode":
+            isHighlightMode = !!data.enabled;
+            if (data.color) currentHighlightColor = data.color;
+            if (data.colorHex) highlightColorHex = data.colorHex;
+            break;
+          case "set_highlight_color":
+            if (data.color) currentHighlightColor = data.color;
+            if (data.colorHex) highlightColorHex = data.colorHex;
             break;
         }
       };

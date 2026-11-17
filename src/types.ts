@@ -183,6 +183,7 @@ export type Quote = {
   text: string;
   epubCfiRange?: string | null;
   pdfPage?: number | null;
+  pdfRect?: { rx: number; ry: number; rw: number; rh: number } | null;
   pageLabel?: string | null;
   color: QuoteColor;
   userNote?: string | null;

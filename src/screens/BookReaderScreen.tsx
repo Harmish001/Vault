@@ -52,6 +52,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const { bookId } = route.params;
   const {
     books,
+    quotes,
     updateBookProgress,
     readerSettings,
     updateReaderSettings,
@@ -63,6 +64,20 @@ export default function BookReaderScreen({ navigation, route }: Props) {
 
   const insets = useSafeAreaInsets();
   const webviewRef = useRef<any>(null);
+  const lastCapturedRectRef = useRef<{ rx: number; ry: number; rw: number; rh: number } | null>(null);
+
+  const initialPdfHighlights = useRef(
+    quotes
+      .filter((q) => q.bookId === bookId && q.pdfPage && q.pdfRect)
+      .map((q) => ({
+        page: q.pdfPage!,
+        color: q.color,
+        rx: q.pdfRect!.rx,
+        ry: q.pdfRect!.ry,
+        rw: q.pdfRect!.rw,
+        rh: q.pdfRect!.rh,
+      }))
+  );
 
   // Active book
   const book = useMemo(() => books.find((b) => b.id === bookId), [books, bookId]);
@@ -92,6 +107,10 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const [ocrRunning, setOcrRunning] = useState(false);
   const lastPageImageDataRef = useRef<string | null>(null);
   const selectedCfiRangeRef = useRef<string | null>(null);
+
+  // Highlighter mode state
+  const [highlightMode, setHighlightMode] = useState(false);
+  const [highlightColor, setHighlightColor] = useState<QuoteColor>("yellow");
 
   // Current reading position
   const [currentCfi, setCurrentCfi] = useState<string | null>(book?.progress.epubCfi ?? null);
@@ -325,6 +344,33 @@ export default function BookReaderScreen({ navigation, route }: Props) {
             }
             break;
 
+          case "highlight_captured": {
+            const capText = data.text ? data.text.trim() : "";
+            const capColor = data.color || highlightColor;
+            setNoteColor(capColor);
+
+            if (data.cfiRange) {
+              selectedCfiRangeRef.current = data.cfiRange;
+            }
+            if (data.rect) {
+              lastCapturedRectRef.current = data.rect;
+            }
+
+            if (capText) {
+              setNoteText(capText);
+              setNoteModalVisible(true);
+            } else if (data.imageData) {
+              lastPageImageDataRef.current = data.imageData;
+              setNoteText("");
+              setNoteModalVisible(true);
+              handleRunOcrOnSnippet(data.imageData);
+            } else {
+              setNoteText("");
+              setNoteModalVisible(true);
+            }
+            break;
+          }
+
           case "text_selected":
             selectedCfiRangeRef.current = data.cfiRange || null;
             if (data.text) {
@@ -374,6 +420,63 @@ export default function BookReaderScreen({ navigation, route }: Props) {
     sendToWebview("update_settings", { settings: updated });
   };
 
+  // Toggle highlighter mode
+  const handleToggleHighlightMode = useCallback(() => {
+    setHighlightMode((prev) => {
+      const next = !prev;
+      sendToWebview("set_highlight_mode", {
+        enabled: next,
+        color: highlightColor,
+        colorHex: QUOTE_COLORS[highlightColor].hex,
+      });
+      ToastAndroid.show(
+        next ? "Highlighter on: drag or select text on page" : "Highlighter off",
+        ToastAndroid.SHORT
+      );
+      return next;
+    });
+  }, [highlightColor, sendToWebview]);
+
+  // Change active highlight color
+  const handleChangeHighlightColor = useCallback(
+    (c: QuoteColor) => {
+      setHighlightColor(c);
+      setNoteColor(c);
+      sendToWebview("set_highlight_color", {
+        color: c,
+        colorHex: QUOTE_COLORS[c].hex,
+      });
+    },
+    [sendToWebview]
+  );
+
+  // Run on-device OCR on a cropped highlight slice
+  const handleRunOcrOnSnippet = useCallback(
+    async (b64Data: string) => {
+      setNoteModalVisible(true);
+      if (!ocrSupported) return;
+      setOcrRunning(true);
+      try {
+        const tempUri = `${FileSystem.cacheDirectory}ocr_hl_${Date.now()}.jpg`;
+        const cleanB64 = b64Data.replace(/^data:image\/\w+;base64,/, "");
+        await FileSystem.writeAsStringAsync(tempUri, cleanB64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const recognized = await readPageText(tempUri);
+        await FileSystem.deleteAsync(tempUri, { idempotent: true });
+        if (recognized && recognized.trim()) {
+          setNoteText(recognized.trim());
+          ToastAndroid.show("Highlighted text recognized via OCR", ToastAndroid.SHORT);
+        }
+      } catch (e) {
+        console.warn("OCR snippet error", e);
+      } finally {
+        setOcrRunning(false);
+      }
+    },
+    []
+  );
+
   // Open Note / Quote capture
   const handleOpenNoteCapture = () => {
     setNoteModalVisible(true);
@@ -387,7 +490,10 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       return;
     }
     if (!ocrSupported) {
-      Alert.alert("OCR unavailable", "On-device OCR is not supported on this device.");
+      Alert.alert(
+        "OCR requires native build",
+        "Google ML Kit text recognition is a native module and is not available inside Expo Go. In development builds or standalone APKs, on-device OCR is fully supported."
+      );
       return;
     }
     setOcrRunning(true);
@@ -432,6 +538,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         color: noteColor,
         userNote: cleanComment || null,
         pdfPage: isPdf ? (pageInfo.page || 1) : null,
+        pdfRect: isPdf ? lastCapturedRectRef.current : null,
         epubCfiRange: !isPdf ? selectedCfiRangeRef.current : null,
         pageLabel,
         source: "reader",
@@ -449,8 +556,21 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       setNoteText("");
       setNoteUserComment("");
       selectedCfiRangeRef.current = null;
+      lastCapturedRectRef.current = null;
     } catch (err: any) {
       Alert.alert("Could not save note", err.message || "Failed to save note.");
+    }
+  };
+
+  // Dismiss Note Modal and clean up temporary highlight if user cancels
+  const handleDismissNoteModal = () => {
+    setNoteModalVisible(false);
+    setNoteText("");
+    setNoteUserComment("");
+    selectedCfiRangeRef.current = null;
+    if (book?.type === "pdf" && lastCapturedRectRef.current) {
+      sendToWebview("cancel_last_highlight");
+      lastCapturedRectRef.current = null;
     }
   };
 
@@ -467,7 +587,8 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         decryptedUri,
         false,
         initialPdfPage.current,
-        initialSettings.current.theme
+        initialSettings.current.theme,
+        initialPdfHighlights.current
       );
     }
     return getReaderHtml(
@@ -562,13 +683,29 @@ export default function BookReaderScreen({ navigation, route }: Props) {
 
           <View style={styles.headerRight}>
             <Pressable
-              onPress={handleOpenNoteCapture}
+              onPress={handleToggleHighlightMode}
               hitSlop={8}
-              style={styles.iconBtn}
+              style={[
+                styles.iconBtn,
+                highlightMode && {
+                  backgroundColor: theme.activeIcon,
+                  borderRadius: 20,
+                },
+              ]}
               accessibilityRole="button"
-              accessibilityLabel="Take note or capture quote"
+              accessibilityLabel="Highlighter mode"
             >
-              <Feather name="edit-3" size={20} color={theme.text} />
+              <Feather
+                name="edit-3"
+                size={20}
+                color={
+                  highlightMode
+                    ? readerSettings.theme === "dark" || readerSettings.theme === "black"
+                      ? "#121212"
+                      : colors.onPrimary
+                    : theme.text
+                }
+              />
             </Pressable>
 
             {book?.type === "epub" && (
@@ -592,6 +729,56 @@ export default function BookReaderScreen({ navigation, route }: Props) {
             >
               <Feather name="type" size={20} color={theme.text} />
             </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* Highlighter Toolbar (active when highlightMode is ON) */}
+      {highlightMode && (
+        <View
+          style={[
+            styles.highlighterBar,
+            {
+              backgroundColor: theme.headerBg,
+              borderColor: theme.border,
+              top: uiVisible ? Math.max(insets.top, 12) + 54 : Math.max(insets.top, 12) + 8,
+            },
+          ]}
+        >
+          <View style={styles.hlInfoRow}>
+            <View style={[styles.hlPencilBadge, { backgroundColor: QUOTE_COLORS[highlightColor].hex }]}>
+              <Feather name="edit-3" size={13} color="#FFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.hlTitle, { color: theme.text }]}>Highlighter Active</Text>
+              <Text style={[styles.hlSubtitle, { color: theme.text }]}>Drag over text on page to highlight & quote</Text>
+            </View>
+            <Pressable
+              onPress={handleToggleHighlightMode}
+              style={[styles.hlDoneBtn, { borderColor: theme.border, backgroundColor: theme.bg }]}
+            >
+              <Text style={[styles.hlDoneText, { color: theme.text }]}>Done</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.hlColors}>
+            {(["yellow", "green", "blue", "pink"] as QuoteColor[]).map((c) => {
+              const col = QUOTE_COLORS[c];
+              const active = highlightColor === c;
+              return (
+                <Pressable
+                  key={c}
+                  onPress={() => handleChangeHighlightColor(c)}
+                  style={[
+                    styles.hlColorDot,
+                    { backgroundColor: col.hex, borderColor: active ? theme.text : "transparent" },
+                    active && styles.hlColorDotActive,
+                  ]}
+                >
+                  {active && <Feather name="check" size={11} color="#FFF" />}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       )}
@@ -1011,9 +1198,9 @@ export default function BookReaderScreen({ navigation, route }: Props) {
         visible={noteModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setNoteModalVisible(false)}
+        onRequestClose={handleDismissNoteModal}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setNoteModalVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={handleDismissNoteModal}>
           <Pressable
             style={[styles.noteSheetContainer, { backgroundColor: theme.headerBg, borderColor: theme.border }]}
             onPress={(e) => e.stopPropagation()}
@@ -1027,7 +1214,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                     : (chapterLabel || book?.title || "Note")}
                 </Text>
               </View>
-              <Pressable onPress={() => setNoteModalVisible(false)} hitSlop={8}>
+              <Pressable onPress={handleDismissNoteModal} hitSlop={8}>
                 <Feather name="x" size={20} color={theme.text} />
               </Pressable>
             </View>
@@ -1063,22 +1250,47 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                 )}
               </View>
 
-              <TextInput
-                value={noteText}
-                onChangeText={setNoteText}
-                placeholder={book?.type === "pdf" ? "Extracted page text or enter quote..." : "Enter or paste quote text..."}
-                placeholderTextColor={colors.muted}
-                multiline
-                numberOfLines={4}
-                style={[
-                  styles.noteTextInput,
-                  {
-                    color: theme.text,
-                    backgroundColor: theme.bg,
-                    borderColor: theme.border,
-                  },
-                ]}
-              />
+              <View style={styles.textInputWrapper}>
+                <TextInput
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  placeholder={
+                    ocrRunning
+                      ? "Recognizing text via OCR…"
+                      : book?.type === "pdf"
+                      ? "Extracted text or type quote…"
+                      : "Enter or paste quote text…"
+                  }
+                  placeholderTextColor={colors.muted}
+                  multiline
+                  numberOfLines={4}
+                  style={[
+                    styles.noteTextInput,
+                    {
+                      color: theme.text,
+                      backgroundColor: theme.bg,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                />
+                {ocrRunning && (
+                  <View style={styles.ocrSnippetBadge}>
+                    <ActivityIndicator size="small" color={theme.activeIcon} />
+                    <Text style={[styles.ocrSnippetBadgeText, { color: theme.activeIcon }]}>
+                      Reading text with OCR…
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {!ocrSupported && book?.type === "pdf" && !noteText && !ocrRunning ? (
+                <View style={[styles.ocrNoticeCard, { borderColor: theme.border, backgroundColor: theme.headerBg }]}>
+                  <Feather name="info" size={13} color={colors.muted} style={{ marginTop: 2, marginRight: 6 }} />
+                  <Text style={[styles.ocrNoticeText, { color: colors.muted }]}>
+                    Scanned image OCR requires a native build (ML Kit is unavailable in Expo Go). For digital books, text extracts automatically.
+                  </Text>
+                </View>
+              ) : null}
 
               {/* Color Selector */}
               <Text style={[styles.settingSectionLabel, { color: theme.text, marginTop: 14 }]}>
@@ -1132,7 +1344,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
               {/* Action Buttons */}
               <View style={styles.noteActionRow}>
                 <Pressable
-                  onPress={() => setNoteModalVisible(false)}
+                  onPress={handleDismissNoteModal}
                   style={[styles.noteCancelBtn, { borderColor: theme.border, backgroundColor: theme.bg }]}
                 >
                   <Text style={[styles.noteCancelText, { color: theme.text }]}>Cancel</Text>
@@ -1488,6 +1700,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.primary,
   },
+  textInputWrapper: {
+    position: "relative",
+  },
+  ocrSnippetBadge: {
+    position: "absolute",
+    bottom: 8,
+    right: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    backgroundColor: "rgba(0,0,0,0.06)",
+  },
+  ocrSnippetBadgeText: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+  },
+  ocrNoticeCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 10,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  ocrNoticeText: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   noteTextInput: {
     fontFamily: fonts.body,
     fontSize: 14,
@@ -1562,5 +1807,69 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: 15,
     color: colors.onPrimary,
+  },
+  highlighterBar: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    zIndex: 100,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  hlInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  hlPencilBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hlTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+  },
+  hlSubtitle: {
+    fontFamily: fonts.body,
+    fontSize: 11,
+    opacity: 0.7,
+  },
+  hlDoneBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  hlDoneText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  hlColors: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  hlColorDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  hlColorDotActive: {
+    borderWidth: 2.5,
+    transform: [{ scale: 1.15 }],
   },
 });
