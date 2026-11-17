@@ -490,7 +490,10 @@ export default function BookReaderScreen({ navigation, route }: Props) {
       return;
     }
     if (!ocrSupported) {
-      Alert.alert("OCR unavailable", "On-device OCR is not supported on this device.");
+      Alert.alert(
+        "OCR requires native build",
+        "Google ML Kit text recognition is a native module and is not available inside Expo Go. In development builds or standalone APKs, on-device OCR is fully supported."
+      );
       return;
     }
     setOcrRunning(true);
@@ -1280,6 +1283,15 @@ export default function BookReaderScreen({ navigation, route }: Props) {
                 )}
               </View>
 
+              {!ocrSupported && book?.type === "pdf" && !noteText && !ocrRunning ? (
+                <View style={[styles.ocrNoticeCard, { borderColor: theme.border, backgroundColor: theme.headerBg }]}>
+                  <Feather name="info" size={13} color={colors.muted} style={{ marginTop: 2, marginRight: 6 }} />
+                  <Text style={[styles.ocrNoticeText, { color: colors.muted }]}>
+                    Scanned image OCR requires a native build (ML Kit is unavailable in Expo Go). For digital books, text extracts automatically.
+                  </Text>
+                </View>
+              ) : null}
+
               {/* Color Selector */}
               <Text style={[styles.settingSectionLabel, { color: theme.text, marginTop: 14 }]}>
                 HIGHLIGHT COLOR
@@ -1706,6 +1718,20 @@ const styles = StyleSheet.create({
   ocrSnippetBadgeText: {
     fontSize: 11,
     fontFamily: fonts.medium,
+  },
+  ocrNoticeCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 10,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  ocrNoticeText: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
   },
   noteTextInput: {
     fontFamily: fonts.body,

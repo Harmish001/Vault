@@ -283,9 +283,21 @@ export function getPdfReaderHtml(
       var pendingDirection = "none";
 
       var currentViewport = null;
+      var currentCssViewport = null;
       var currentUnscaledVp = null;
       var currentScale = 1.0;
       var currentTextContent = null;
+
+      function transformMatrix(m1, m2) {
+        return [
+          m1[0] * m2[0] + m1[2] * m2[1],
+          m1[1] * m2[0] + m1[3] * m2[1],
+          m1[0] * m2[2] + m1[2] * m2[3],
+          m1[1] * m2[2] + m1[3] * m2[3],
+          m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+          m1[1] * m2[4] + m1[3] * m2[5] + m1[5]
+        ];
+      }
 
       var isHighlightMode = false;
       var currentHighlightColor = "yellow";
@@ -441,58 +453,52 @@ export function getPdfReaderHtml(
       }
 
       function extractTextFromRect(box) {
-        if (!currentTextContent || !currentTextContent.items || !currentScale) return "";
-        var unscaledHeight = (currentUnscaledVp && currentUnscaledVp.height) || 800;
+        if (!currentTextContent || !currentTextContent.items || !currentCssViewport) return "";
+        var items = currentTextContent.items;
+        var vpTransform = currentCssViewport.transform;
         var scale = currentScale;
 
-        // Convert canvas CSS box coordinates to PDF user space
-        var boxPdfLeft = box.x / scale;
-        var boxPdfRight = (box.x + box.w) / scale;
-        var boxPdfTop = unscaledHeight - (box.y / scale);
-        var boxPdfBottom = unscaledHeight - ((box.y + box.h) / scale);
+        var boxX1 = box.x;
+        var boxX2 = box.x + box.w;
+        var boxY1 = box.y;
+        var boxY2 = box.y + box.h;
 
-        var minPdfX = Math.min(boxPdfLeft, boxPdfRight);
-        var maxPdfX = Math.max(boxPdfLeft, boxPdfRight);
-        var minPdfY = Math.min(boxPdfTop, boxPdfBottom);
-        var maxPdfY = Math.max(boxPdfTop, boxPdfBottom);
-
-        // Generous tolerance (6pt vertical, 4pt horizontal) for mobile finger highlights
-        var vTol = 6;
-        var hTol = 4;
-
-        var items = currentTextContent.items;
+        var hTol = 8;
+        var vTol = 8;
         var matched = [];
 
         for (var i = 0; i < items.length; i++) {
           var it = items[i];
           if (!it.str || !it.str.trim()) continue;
-          var itX1 = it.transform[4];
-          var itWidth = it.width || (it.str.length * 6);
-          var itX2 = itX1 + itWidth;
-          var itFontH = Math.abs(it.height || it.transform[3] || 10);
-          var itY1 = it.transform[5];
-          var itY2 = itY1 + itFontH;
 
-          var overlapX = (itX2 >= minPdfX - hTol && itX1 <= maxPdfX + hTol);
-          var overlapY = (itY2 >= minPdfY - vTol && itY1 <= maxPdfY + vTol);
+          var tx = transformMatrix(vpTransform, it.transform);
+          var fontH = Math.max(9, Math.hypot(tx[2], tx[3]));
+          var itW = it.width ? (it.width * scale) : (it.str.length * fontH * 0.55);
+
+          var itemX1 = Math.min(tx[4], tx[4] + itW);
+          var itemX2 = Math.max(tx[4], tx[4] + itW);
+          var itemY1 = tx[5] - fontH;
+          var itemY2 = tx[5] + (fontH * 0.25);
+
+          var overlapX = (itemX2 >= boxX1 - hTol && itemX1 <= boxX2 + hTol);
+          var overlapY = (itemY2 >= boxY1 - vTol && itemY1 <= boxY2 + vTol);
 
           if (overlapX && overlapY) {
             matched.push({
               str: it.str,
-              pdfX: itX1,
-              pdfY: itY1,
-              fontHeight: itFontH
+              screenX: itemX1,
+              screenY: itemY1,
+              fontH: fontH
             });
           }
         }
 
         if (matched.length === 0) return "";
 
-        // Sort top-to-bottom (higher PDF Y first), then left-to-right (lower PDF X first)
         matched.sort(function(a, b) {
-          var diffY = b.pdfY - a.pdfY;
-          if (Math.abs(diffY) > Math.min(a.fontHeight, b.fontHeight) * 0.5) return diffY;
-          return a.pdfX - b.pdfX;
+          var diffY = a.screenY - b.screenY;
+          if (Math.abs(diffY) > Math.min(a.fontH, b.fontH) * 0.5) return diffY;
+          return a.screenX - b.screenX;
         });
 
         return matched.map(function(m) { return m.str; }).join(" ").replace(/\s+/g, " ").trim();
@@ -555,7 +561,9 @@ export function getPdfReaderHtml(
           var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
           var viewport = page.getViewport({ scale: scale * dpr });
+          var cssViewport = page.getViewport({ scale: scale });
           currentViewport = viewport;
+          currentCssViewport = cssViewport;
           currentUnscaledVp = unscaledVp;
           currentScale = scale;
 
