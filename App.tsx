@@ -52,14 +52,21 @@ import { getNextWeeklyBackupTime, isAutoBackupDue } from "./src/auto-backup-plan
 import { scheduleWeeklyAutoBackupAlarm } from "./src/autoBackup";
 import { canViewInApp } from "./src/screens/FileViewerScreen";
 
-type AppLink = { action: "open" | "share" | "copy" | "folder"; id: string } | { action: "scan" } | { action: "add" } | { action: "reminder" };
+type AppLink =
+  | { action: "open" | "share" | "copy" | "folder"; id: string }
+  | { action: "scan" }
+  | { action: "add" }
+  | { action: "reminder" }
+  | { action: "read-book"; id: string };
 
 /**
- * Widget taps: docvault://widget/open?id=…, docvault://widget/share?id=…, or docvault://widget/copy?id=…
+ * Widget taps: docvault://widget/open?id=…, docvault://widget/share?id=…, docvault://widget/copy?id=…, or docvault://widget/book?id=…
  * Launcher shortcuts: docvault://quick/scan, /add, /reminder, and pinned folders as docvault://quick/folder?id=…
  */
 function parseAppLink(url: string | null): AppLink | null {
   if (!url) return null;
+  const b = /^docvault:\/\/widget\/book\?id=([^&]+)/.exec(url) || /^docvault:\/\/book\/(?:read|open)\?id=([^&]+)/.exec(url);
+  if (b) return { action: "read-book", id: decodeURIComponent(b[1]) };
   const w = /^docvault:\/\/widget\/(open|share|copy)\?id=([^&]+)/.exec(url);
   if (w) return { action: w[1] as "open" | "share" | "copy", id: decodeURIComponent(w[2]) };
   const q = /^docvault:\/\/quick\/(scan|add|reminder|folder)(?:\?id=([^&]+))?/.exec(url);
@@ -77,8 +84,8 @@ const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background
 
 function Shell({ fontsReady }: { fontsReady: boolean }) {
   const { ready: settingsReady, settings, update: updateSettings } = useSettings();
-  const { ready: vaultReady, files, folders, reminders, favorites, notes, profile, updateReminder, openFile, shareFile, performAutoBackup, error: vaultError } = useVault();
-  const { locked, relockDue } = useLock();
+  const { ready: vaultReady, files, folders, reminders, favorites, notes, books, profile, updateReminder, openFile, shareFile, performAutoBackup, error: vaultError } = useVault();
+  const { locked, relockDue, bypassLock } = useLock();
   const { hasShareIntent, shareIntent } = useShareIntentContext();
   const [navReady, setNavReady] = useState(false);
   const hidden = useRef(false);
@@ -213,8 +220,8 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
 
   // Home-screen widget: redraw from the unlocked app whenever what it shows may have changed.
   useEffect(() => {
-    if (appReady && !vaultError) refreshWidgets({ index: { files, folders, favorites, notes }, settings });
-  }, [appReady, vaultError, files, folders, favorites, notes, settings]);
+    if (appReady && !vaultError) refreshWidgets({ index: { files, folders, favorites, notes, books }, settings });
+  }, [appReady, vaultError, files, folders, favorites, notes, books, settings]);
 
   useEffect(() => {
     if (appReady && !vaultError) syncFolderShortcuts(folders);
@@ -251,7 +258,16 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
     return () => sub.remove();
   }, []);
   useEffect(() => {
-    if (!appLink || !appReady || !navReady || locked || relockDue() || vaultError) return;
+    if (!appLink || !appReady || !navReady || vaultError) return;
+    if (appLink.action === "read-book") {
+      const targetBookId = appLink.id;
+      setAppLink(null);
+      bypassLock().then(() => {
+        navRef.navigate("BookReader", { bookId: targetBookId });
+      });
+      return;
+    }
+    if (locked || relockDue()) return;
     setAppLink(null);
     // push, not navigate: a shortcut always starts a fresh scan / document / reminder
     if (appLink.action === "scan") return navRef.dispatch(StackActions.push("Scan"));

@@ -97,6 +97,16 @@
               "targetCellWidth": 4,
               "targetCellHeight": 2,
               "resizeMode": "horizontal|vertical"
+            },
+            {
+              "name": "CurrentBookWidget",
+              "label": "Currently Reading",
+              "description": "DocVault currently reading book. Tap to resume reading directly.",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical"
             }
           ]
         }

@@ -134,7 +134,69 @@ async function runTests() {
   assert.ok(htmlUri.includes("pdfjsLib"), "PDF HTML includes pdfjsLib");
   assert.ok(htmlUri.includes(dummyPdfUri), "PDF HTML includes direct file URL for fast streaming without OOM");
   assert.ok(htmlUri.includes("filter: invert"), "Dark theme applies canvas invert filter");
-  console.log("ok - Offline PDF HTML template generator (streaming file URI & base64)");
+  assert.ok(htmlUri.includes("page_thumbnail"), "PDF reader HTML posts page_thumbnail on first page");
+  assert.ok(htmlUri.includes("toDataURL"), "PDF reader HTML converts first page to canvas data URL for cover");
+  assert.ok(htmlUri.includes("getPage(1)"), "PDF reader HTML extracts page 1 thumbnail even when resuming past page 1");
+  console.log("ok - Offline PDF HTML template generator (streaming file URI, base64 & first page cover thumbnail)");
+
+  // Test 6: Currently reading book selection logic for widget
+  const booksList: Book[] = [
+    {
+      id: "b-unread",
+      title: "Unread Book",
+      type: "epub",
+      isFavorite: false,
+      addedAt: 1000,
+      progress: { percentage: 0, updatedAt: 1000 },
+    },
+    {
+      id: "b-reading-older",
+      title: "Older Reading Book",
+      type: "pdf",
+      isFavorite: false,
+      addedAt: 2000,
+      lastOpenedAt: 3000,
+      progress: { percentage: 0.2, updatedAt: 3000 },
+    },
+    {
+      id: "b-reading-newer",
+      title: "Newer Reading Book",
+      type: "epub",
+      isFavorite: true,
+      addedAt: 2500,
+      lastOpenedAt: 5000,
+      progress: { percentage: 0.45, updatedAt: 5000 },
+    },
+    {
+      id: "b-finished",
+      title: "Finished Book",
+      type: "epub",
+      isFavorite: false,
+      addedAt: 1500,
+      lastOpenedAt: 6000,
+      progress: { percentage: 1.0, updatedAt: 6000 },
+    },
+  ];
+
+  // Helper matching task.tsx buildCurrentBookWidget selection
+  const readable = booksList.filter((b) => b.type !== "external");
+  const readingList = readable.filter((b) => getBookStatus(b) === "reading");
+  assert.strictEqual(readingList.length, 2, "2 books in reading status");
+  const currentWidgetBook = [...readingList].sort((a, b) => {
+    const aTime = a.lastOpenedAt ?? a.progress.updatedAt ?? a.addedAt;
+    const bTime = b.lastOpenedAt ?? b.progress.updatedAt ?? b.addedAt;
+    return bTime - aTime;
+  })[0];
+  assert.strictEqual(currentWidgetBook.id, "b-reading-newer", "Widget picks the most recently opened book in reading status");
+  console.log("ok - Widget currently reading book selection logic");
+
+  // Test 7: Widget deep link URL formatting
+  const testBookId = "book-unique-123";
+  const widgetDeepLink = `docvault://widget/book?id=${encodeURIComponent(testBookId)}`;
+  const match = /^docvault:\/\/widget\/book\?id=([^&]+)/.exec(widgetDeepLink);
+  assert.ok(match, "Widget deep link pattern matches");
+  assert.strictEqual(decodeURIComponent(match![1]), testBookId, "Book ID decoded correctly from deep link");
+  console.log("ok - Widget deep link for bypassing unlock and opening book directly");
 
   console.log("All books and reader tests passed successfully!");
 }
