@@ -35,7 +35,7 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Test the PDF writer
+      - name: Run automated test suites
         run: npm test
 
       - name: Use the CI run number as versionCode (so each build installs over the last)
