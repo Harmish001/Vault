@@ -10,8 +10,15 @@ import { widgetItems } from "../favorites";
 import { kindOf } from "../utils";
 import type { Note, Settings, VaultIndex } from "../types";
 import { FavoritesWidget, WIDGET_CARD, WIDGET_CAROUSEL, type WidgetCard } from "./FavoritesWidget";
+import { CurrentBookWidget, WIDGET_CURRENT_BOOK } from "./CurrentBookWidget";
+import { Book, getBookStatus } from "../types";
 
-export type WidgetData = { index: (Pick<VaultIndex, "files" | "folders" | "favorites"> & { notes?: Note[] }) | null; settings: Settings };
+export { WIDGET_CURRENT_BOOK };
+
+export type WidgetData = {
+  index: (Pick<VaultIndex, "files" | "folders" | "favorites"> & { notes?: Note[]; books?: Book[] }) | null;
+  settings: Settings;
+};
 
 const PAGES_FILE = (FileSystem.documentDirectory ?? "") + "widget-pages.json";
 
@@ -38,6 +45,54 @@ async function thumb(storedAs: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function bookCoverThumb(coverPath: string): Promise<string | null> {
+  try {
+    const fullUri = coverPath.startsWith("file://") ? coverPath : `file://${coverPath}`;
+    const r = await manipulateAsync(fullUri, [{ resize: { width: 180 } }], {
+      compress: 0.7,
+      format: SaveFormat.JPEG,
+      base64: true,
+    });
+    FileSystem.deleteAsync(r.uri, { idempotent: true }).catch(() => undefined);
+    return r.base64 ? `data:image/jpeg;base64,${r.base64}` : null;
+  } catch {
+    return null;
+  }
+}
+
+async function buildCurrentBookWidget(info: WidgetInfo, data: WidgetData) {
+  if (!data.index) return <CurrentBookWidget book={null} unavailable />;
+  const books = data.index.books ?? [];
+  const readable = books.filter((b) => b.type !== "external" && b.filePath);
+  if (!readable.length) return <CurrentBookWidget book={null} unavailable={false} />;
+
+  // Priority 1: Books currently in 'reading' status
+  const readingBooks = readable.filter((b) => getBookStatus(b) === "reading");
+  let targetBook: Book;
+
+  if (readingBooks.length > 0) {
+    targetBook = [...readingBooks].sort((a, b) => {
+      const aTime = a.lastOpenedAt ?? a.progress.updatedAt ?? a.addedAt;
+      const bTime = b.lastOpenedAt ?? b.progress.updatedAt ?? b.addedAt;
+      return bTime - aTime;
+    })[0];
+  } else {
+    // Priority 2: Most recently opened or added readable book
+    targetBook = [...readable].sort((a, b) => {
+      const aTime = a.lastOpenedAt ?? a.addedAt;
+      const bTime = b.lastOpenedAt ?? b.addedAt;
+      return bTime - aTime;
+    })[0];
+  }
+
+  let coverThumb: string | null = null;
+  if (targetBook.coverPath) {
+    coverThumb = await bookCoverThumb(targetBook.coverPath);
+  }
+
+  return <CurrentBookWidget book={targetBook} coverThumb={coverThumb} />;
 }
 
 function perPage(info: WidgetInfo) {
@@ -109,6 +164,12 @@ export const widgetTaskHandler: WidgetTaskHandler = async ({ widgetInfo, widgetA
     }
   }
 
+  if (widgetInfo.widgetName === WIDGET_CURRENT_BOOK) {
+    const data: WidgetData = { index: await readVaultIndex(), settings: await readSettings() };
+    renderWidget(await buildCurrentBookWidget(widgetInfo, data));
+    return;
+  }
+
   const step = widgetAction === "WIDGET_CLICK" ? (clickAction === "NEXT" ? 1 : clickAction === "PREV" ? -1 : 0) : 0;
   const data: WidgetData = { index: await readVaultIndex(), settings: await readSettings() };
   renderWidget(await build(widgetInfo, data, step));
@@ -116,7 +177,11 @@ export const widgetTaskHandler: WidgetTaskHandler = async ({ widgetInfo, widgetA
 
 /** Redraws every placed widget from the app's in-memory data (after favorites, files or settings change). */
 export function refreshWidgets(data: WidgetData) {
-  for (const widgetName of [WIDGET_CARD, WIDGET_CAROUSEL]) {
-    requestWidgetUpdate({ widgetName, renderWidget: (info) => build(info, data) }).catch(() => undefined);
+  for (const widgetName of [WIDGET_CARD, WIDGET_CAROUSEL, WIDGET_CURRENT_BOOK]) {
+    requestWidgetUpdate({
+      widgetName,
+      renderWidget: (info) =>
+        info.widgetName === WIDGET_CURRENT_BOOK ? buildCurrentBookWidget(info, data) : build(info, data),
+    }).catch(() => undefined);
   }
 }

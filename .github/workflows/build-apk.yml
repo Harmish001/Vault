@@ -35,7 +35,7 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Test the PDF writer
+      - name: Run automated test suites
         run: npm test
 
       - name: Use the CI run number as versionCode (so each build installs over the last)
@@ -73,15 +73,23 @@ jobs:
       - name: Name the APK
         run: |
           mkdir -p dist
-          if [ -f android/app/build/outputs/apk/release/app-arm64-v8a-release.apk ]; then
-            # Priority: arm64-v8a is the lightweight ~18MB APK for modern Android phones
-            cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/DocVault-build-${{ github.run_number }}-arm64.apk"
-            cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/DocVault-build-${{ github.run_number }}.apk"
-            if [ -f android/app/build/outputs/apk/release/app-universal-release.apk ]; then
-              cp android/app/build/outputs/apk/release/app-universal-release.apk "dist/DocVault-build-${{ github.run_number }}-universal.apk"
+          ARM64_APK=$(find android/app/build/outputs/apk/release -name "*arm64-v8a*.apk" | head -n 1)
+          UNIVERSAL_APK=$(find android/app/build/outputs/apk/release -name "*universal*.apk" | head -n 1)
+          ARM32_APK=$(find android/app/build/outputs/apk/release -name "*armeabi-v7a*.apk" | head -n 1)
+          FAT_APK=$(find android/app/build/outputs/apk/release -name "app-release*.apk" | head -n 1)
+
+          if [ -n "$ARM64_APK" ] && [ -f "$ARM64_APK" ]; then
+            # Priority: arm64-v8a is the lightweight ~18MB APK for modern Android phones (99%+ of devices)
+            cp "$ARM64_APK" "dist/DocVault-build-${{ github.run_number }}-arm64.apk"
+            cp "$ARM64_APK" "dist/DocVault-build-${{ github.run_number }}.apk"
+            if [ -n "$UNIVERSAL_APK" ] && [ -f "$UNIVERSAL_APK" ]; then
+              cp "$UNIVERSAL_APK" "dist/DocVault-build-${{ github.run_number }}-universal.apk"
             fi
-          elif [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
-            cp android/app/build/outputs/apk/release/app-release.apk "dist/DocVault-build-${{ github.run_number }}.apk"
+            if [ -n "$ARM32_APK" ] && [ -f "$ARM32_APK" ]; then
+              cp "$ARM32_APK" "dist/DocVault-build-${{ github.run_number }}-arm32.apk"
+            fi
+          elif [ -n "$FAT_APK" ] && [ -f "$FAT_APK" ]; then
+            cp "$FAT_APK" "dist/DocVault-build-${{ github.run_number }}.apk"
           else
             find android/app/build/outputs/apk/release -name "*.apk" -exec cp {} dist/ \;
           fi

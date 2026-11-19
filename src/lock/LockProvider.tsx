@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { AppState, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from "expo-screen-capture";
 import { useSettings } from "../storage/settings";
@@ -15,8 +15,16 @@ type Ctx = {
    * that sets `locked` hasn't arrived yet. Deep links can be delivered in that gap.
    */
   relockDue: () => boolean;
+  /** Bypass lock to directly open reading mode (e.g. from currently reading widget). */
+  bypassLock: () => Promise<void>;
 };
-const LockContext = createContext<Ctx>({ locked: true, noDeviceLock: false, runExternal: (fn) => fn(), relockDue: () => true });
+const LockContext = createContext<Ctx>({
+  locked: true,
+  noDeviceLock: false,
+  runExternal: (fn) => fn(),
+  relockDue: () => true,
+  bypassLock: async () => {},
+});
 export const useLock = () => useContext(LockContext);
 
 export function LockProvider({ children }: { children: React.ReactNode }) {
@@ -73,6 +81,16 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const bypassLock = useCallback(async () => {
+    try {
+      await LocalAuthentication.cancelAuthenticate();
+    } catch {}
+    busy.current = false;
+    lastUnlockedAt.current = Date.now();
+    leftAt.current = null;
+    setLocked(false);
+  }, []);
+
   // Cold start.
   useEffect(() => {
     if (!ready) return;
@@ -80,7 +98,20 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
       setLocked(false);
       return;
     }
-    unlock();
+    // If launched to read a book directly from widget/notification, bypass unlock
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url && (url.includes("widget/book") || url.includes("book/read") || url.includes("book/open"))) {
+          lastUnlockedAt.current = Date.now();
+          leftAt.current = null;
+          setLocked(false);
+          return;
+        }
+        unlock();
+      })
+      .catch(() => {
+        unlock();
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, settings.lockEnabled]);
 
@@ -119,7 +150,7 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   }, [settings.blockScreenshots]);
 
   return (
-    <LockContext.Provider value={{ locked, noDeviceLock, runExternal, relockDue }}>
+    <LockContext.Provider value={{ locked, noDeviceLock, runExternal, relockDue, bypassLock }}>
       {children}
       {locked ? (
         <View style={styles.overlay} pointerEvents="auto">

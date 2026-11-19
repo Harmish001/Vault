@@ -25,12 +25,13 @@ import * as Brightness from "expo-brightness";
 const RNWebView = WebView as unknown as React.ComponentType<any>;
 import { RootStackParamList } from "../navigation";
 import * as FileSystem from "expo-file-system/legacy";
-import { useVault } from "../storage/vault";
+import { useVault, COVERS_DIR } from "../storage/vault";
 import { colors, fonts, radius } from "../theme";
 import { BookProgress, QuoteColor, ReaderMargin, ReaderSettings, ReaderTextAlign, ReaderTheme } from "../types";
 import { getReaderHtml, THEME_PALETTES } from "../reader/readerHtml";
 import { getPdfReaderHtml } from "../reader/pdfHtml";
 import { ocrSupported, readPageText } from "../ocr/read";
+import { uid } from "../utils";
 
 type Props = NativeStackScreenProps<RootStackParamList, "BookReader">;
 
@@ -53,6 +54,7 @@ export default function BookReaderScreen({ navigation, route }: Props) {
   const {
     books,
     quotes,
+    updateBook,
     updateBookProgress,
     readerSettings,
     updateReaderSettings,
@@ -275,6 +277,25 @@ export default function BookReaderScreen({ navigation, route }: Props) {
               };
             }
             break;
+
+          case "page_thumbnail": {
+            if (data.page === 1 && data.dataUrl && book && !book.coverPath) {
+              (async () => {
+                try {
+                  const b64 = data.dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+                  await FileSystem.makeDirectoryAsync(COVERS_DIR, { intermediates: true });
+                  const savedCoverPath = `${COVERS_DIR}cover_${uid()}.jpg`;
+                  await FileSystem.writeAsStringAsync(savedCoverPath, b64, {
+                    encoding: FileSystem.EncodingType.Base64,
+                  });
+                  await updateBook(book.id, { coverPath: savedCoverPath });
+                } catch (e) {
+                  console.warn("[BookReader] Failed to save first page cover:", e);
+                }
+              })();
+            }
+            break;
+          }
 
           case "toggle_ui":
             setUiVisible((prev) => !prev);

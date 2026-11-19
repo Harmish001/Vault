@@ -2,7 +2,6 @@ import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   Image,
   Modal,
   Pressable,
@@ -53,7 +52,8 @@ export default function BooksView({ navigation }: Props) {
 
   // 2 book columns: (width - 32 padding - 12 gap) / 2
   const cardWidth = Math.floor((windowWidth - 32 - 12) / 2);
-  const coverHeight = Math.floor(cardWidth * 1.42);
+  // Compact card cover height (1.08 ratio instead of 1.42) so more books fit on screen
+  const coverHeight = Math.floor(cardWidth * 1.08);
 
   // Most recently opened / reading book for "Continue reading" card
   const continueBook = useMemo(() => {
@@ -104,16 +104,19 @@ export default function BooksView({ navigation }: Props) {
       const res = await DocumentPicker.getDocumentAsync({
         type: ["application/epub+zip", "application/pdf", "*/*"],
         copyToCacheDirectory: true,
-        multiple: false,
+        multiple: true,
       });
 
-      if (res.canceled || !res.assets?.[0]) return;
-      const asset = res.assets[0];
-      const name = asset.name || "Untitled";
-      const isEpub = name.toLowerCase().endsWith(".epub") || asset.mimeType?.includes("epub");
-      const isPdf = name.toLowerCase().endsWith(".pdf") || asset.mimeType?.includes("pdf");
+      if (res.canceled || !res.assets || res.assets.length === 0) return;
 
-      if (!isEpub && !isPdf) {
+      const validAssets = res.assets.filter((asset) => {
+        const name = asset.name || "";
+        const isEpub = name.toLowerCase().endsWith(".epub") || asset.mimeType?.includes("epub");
+        const isPdf = name.toLowerCase().endsWith(".pdf") || asset.mimeType?.includes("pdf");
+        return isEpub || isPdf;
+      });
+
+      if (validAssets.length === 0) {
         Alert.alert(
           "Unsupported format",
           "Only DRM-free EPUB and PDF books can be opened in DocVault."
@@ -121,84 +124,107 @@ export default function BooksView({ navigation }: Props) {
         return;
       }
 
-      // Check duplicates
-      const existing = books.find(
-        (b) => b.title.trim().toLowerCase() === name.replace(/\.(epub|pdf)$/i, "").trim().toLowerCase()
-      );
-      if (existing) {
-        const proceed = await new Promise<boolean>((resolve) => {
-          Alert.alert("Already imported", `"${existing.title}" is already in your library. Import again?`, [
-            { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-            { text: "Import again", onPress: () => resolve(true) },
-          ]);
-        });
-        if (!proceed) return;
-      }
-
       setImporting(true);
 
-      let title = name.replace(/\.(epub|pdf)$/i, "");
-      let author: string | null = null;
-      let coverPath: string | null = null;
+      let importedCount = 0;
+      let drmCount = 0;
+      let lastTitle = "";
 
-      if (isEpub) {
-        try {
-          const fileInfo = await FileSystem.getInfoAsync(asset.uri);
-          const fileSize = fileInfo.exists && "size" in fileInfo ? (fileInfo.size as number) : (asset.size ?? 0);
-          // Only parse metadata in JS if file is under 15MB to prevent OutOfMemory on huge graphic EPUBs
-          if (fileSize < 15 * 1024 * 1024) {
-            const rawBytes = await readRawBytes(asset.uri);
-            const meta = await parseEpub(rawBytes, title);
-            title = meta.title || title;
-            author = meta.author || null;
+      for (let i = 0; i < validAssets.length; i++) {
+        const asset = validAssets[i];
+        const name = asset.name || "Untitled";
+        const isEpub = name.toLowerCase().endsWith(".epub") || asset.mimeType?.includes("epub");
+        const isPdf = name.toLowerCase().endsWith(".pdf") || asset.mimeType?.includes("pdf");
 
-            if (meta.coverBase64) {
-              await FileSystem.makeDirectoryAsync(COVERS_DIR, { intermediates: true });
-              const savedCoverPath = `${COVERS_DIR}cover_${uid()}.jpg`;
-              await FileSystem.writeAsStringAsync(savedCoverPath, meta.coverBase64, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              coverPath = savedCoverPath;
-            }
+        // Duplicate check for single file import
+        if (validAssets.length === 1) {
+          const existing = books.find(
+            (b) => b.title.trim().toLowerCase() === name.replace(/\.(epub|pdf)$/i, "").trim().toLowerCase()
+          );
+          if (existing) {
+            const proceed = await new Promise<boolean>((resolve) => {
+              Alert.alert("Already imported", `"${existing.title}" is already in your library. Import again?`, [
+                { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+                { text: "Import again", onPress: () => resolve(true) },
+              ]);
+            });
+            if (!proceed) continue;
           }
-        } catch (err: any) {
-          if (err.message === DRM_ERROR_MESSAGE) {
-            setImporting(false);
-            Alert.alert("Could not open book", DRM_ERROR_MESSAGE);
-            return;
-          }
-          console.warn("[BooksView] Metadata extraction skipped:", err);
         }
+
+        let title = name.replace(/\.(epub|pdf)$/i, "");
+        let author: string | null = null;
+        let coverPath: string | null = null;
+
+        if (isEpub) {
+          try {
+            const fileInfo = await FileSystem.getInfoAsync(asset.uri);
+            const fileSize = fileInfo.exists && "size" in fileInfo ? (fileInfo.size as number) : (asset.size ?? 0);
+            if (fileSize < 15 * 1024 * 1024) {
+              const rawBytes = await readRawBytes(asset.uri);
+              const meta = await parseEpub(rawBytes, title);
+              title = meta.title || title;
+              author = meta.author || null;
+
+              if (meta.coverBase64) {
+                await FileSystem.makeDirectoryAsync(COVERS_DIR, { intermediates: true });
+                const savedCoverPath = `${COVERS_DIR}cover_${uid()}.jpg`;
+                await FileSystem.writeAsStringAsync(savedCoverPath, meta.coverBase64, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+                coverPath = savedCoverPath;
+              }
+            }
+          } catch (err: any) {
+            if (err.message === DRM_ERROR_MESSAGE) {
+              drmCount++;
+              continue;
+            }
+            console.warn("[BooksView] Metadata extraction skipped:", err);
+          }
+        }
+
+        // Store file into vault private books directory
+        const stored = await importBookFile(asset.uri, name);
+
+        await createBook({
+          title,
+          author,
+          type: isEpub ? "epub" : "pdf",
+          filePath: stored.filePath,
+          coverPath,
+          isFavorite: false,
+          favoritedAt: null,
+          lastOpenedAt: null,
+          progress: {
+            percentage: 0,
+            updatedAt: Date.now(),
+          },
+        });
+
+        importedCount++;
+        lastTitle = title;
       }
 
-      // Store file into vault private books directory
-      const stored = await importBookFile(asset.uri, name);
-
-      const created = await createBook({
-        title,
-        author,
-        type: isEpub ? "epub" : "pdf",
-        filePath: stored.filePath,
-        coverPath,
-        isFavorite: false,
-        favoritedAt: null,
-        lastOpenedAt: null,
-        progress: {
-          percentage: 0,
-          updatedAt: Date.now(),
-        },
-      });
-
       setImporting(false);
-      ToastAndroid.show(`"${title}" added to Books`, ToastAndroid.SHORT);
 
-      // Open reader directly for EPUB or PDF
-      if (isEpub || isPdf) {
-        navigation.navigate("BookReader", { bookId: created.id });
+      if (importedCount === 1) {
+        ToastAndroid.show(`"${lastTitle}" added to Books`, ToastAndroid.SHORT);
+      } else if (importedCount > 1) {
+        ToastAndroid.show(`${importedCount} books added to Books`, ToastAndroid.SHORT);
+      }
+
+      if (drmCount > 0) {
+        Alert.alert(
+          "Could not open book",
+          drmCount === 1
+            ? DRM_ERROR_MESSAGE
+            : `${drmCount} books could not be imported because they are DRM protected.`
+        );
       }
     } catch (err: any) {
       setImporting(false);
-      Alert.alert("Import error", err.message || "Failed to import book.");
+      Alert.alert("Import error", err.message || "Failed to import books.");
     }
   }
 
@@ -434,10 +460,10 @@ export default function BooksView({ navigation }: Props) {
                       <View style={styles.coverPlaceholder}>
                         <Feather
                           name={book.type === "pdf" ? "file-text" : "book"}
-                          size={32}
+                          size={24}
                           color={colors.primary}
                         />
-                        <Text style={styles.coverPlaceholderTitle} numberOfLines={3}>
+                        <Text style={styles.coverPlaceholderTitle} numberOfLines={2}>
                           {book.title}
                         </Text>
                       </View>
@@ -521,7 +547,7 @@ export default function BooksView({ navigation }: Props) {
         <View style={styles.importingOverlay}>
           <View style={styles.importingCard}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.importingTitle}>Importing book…</Text>
+            <Text style={styles.importingTitle}>Importing books…</Text>
             <Text style={styles.importingSub}>
               Encrypting into DocVault. Please wait a moment.
             </Text>
@@ -634,11 +660,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 12,
     alignItems: "center",
-    elevation: 2,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
   },
   heroCover: {
     width: 74,
@@ -651,6 +672,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     resizeMode: "cover",
+    backgroundColor: colors.surfaceAlt,
   },
   heroCoverFallback: {
     flex: 1,
@@ -742,17 +764,17 @@ const styles = StyleSheet.create({
   coverPlaceholder: {
     flex: 1,
     backgroundColor: colors.primarySoft,
-    padding: 12,
+    padding: 8,
     alignItems: "center",
     justifyContent: "center",
   },
   coverPlaceholderTitle: {
     fontFamily: fonts.heading,
-    fontSize: 13.5,
+    fontSize: 12,
     color: colors.ink,
     textAlign: "center",
-    marginTop: 8,
-    lineHeight: 17,
+    marginTop: 4,
+    lineHeight: 15,
   },
   heartButton: {
     position: "absolute",
@@ -791,31 +813,33 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 3,
-    backgroundColor: "rgba(0,0,0,0.2)",
+    backgroundColor: colors.line,
   },
   cardProgressBarFill: {
     height: "100%",
     backgroundColor: colors.primary,
   },
   bookMeta: {
-    padding: 10,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 8,
   },
   bookTitle: {
     fontFamily: fonts.heading,
-    fontSize: 14,
+    fontSize: 13,
     color: colors.ink,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   bookAuthor: {
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.muted,
-    marginTop: 2,
+    marginTop: 1,
   },
   bookStatusText: {
     fontFamily: fonts.medium,
-    fontSize: 11,
+    fontSize: 10,
     color: colors.primary,
-    marginTop: 4,
+    marginTop: 2,
   },
 });

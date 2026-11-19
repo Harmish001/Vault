@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import {
   Alert,
   Image,
+  LayoutAnimation,
   Modal,
   Pressable,
   ScrollView,
@@ -292,7 +293,10 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         {/* Tabs: Notes (Quotes) | Bookmarks */}
         <View style={styles.tabBar}>
           <Pressable
-            onPress={() => setActiveTab("notes")}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveTab("notes");
+            }}
             style={[styles.tabItem, activeTab === "notes" && styles.tabItemActive]}
           >
             <Text style={[styles.tabText, activeTab === "notes" && styles.tabTextActive]}>
@@ -301,7 +305,10 @@ export default function BookDetailScreen({ navigation, route }: Props) {
           </Pressable>
 
           <Pressable
-            onPress={() => setActiveTab("bookmarks")}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveTab("bookmarks");
+            }}
             style={[styles.tabItem, activeTab === "bookmarks" && styles.tabItemActive]}
           >
             <Text style={[styles.tabText, activeTab === "bookmarks" && styles.tabTextActive]}>

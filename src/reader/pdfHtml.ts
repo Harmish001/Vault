@@ -378,6 +378,29 @@ export function getPdfReaderHtml(
         totalPages = pdf.numPages;
         post({ type: "loaded", pages: totalPages });
         renderPage(curPage, "none");
+
+        // If resuming a book past page 1, still generate page 1 cover thumbnail in the background
+        if (curPage !== 1) {
+          try {
+            pdf.getPage(1).then(function(page1) {
+              var unscaledVp = page1.getViewport({ scale: 1 });
+              var scale = 220 / unscaledVp.width;
+              var vp = page1.getViewport({ scale: scale });
+              var c = document.createElement("canvas");
+              c.width = Math.floor(vp.width);
+              c.height = Math.floor(vp.height);
+              var ctx = c.getContext("2d");
+              page1.render({ canvasContext: ctx, viewport: vp }).promise.then(function() {
+                var thumb = c.toDataURL("image/jpeg", 0.7);
+                post({
+                  type: "page_thumbnail",
+                  page: 1,
+                  dataUrl: thumb
+                });
+              }).catch(function(){});
+            }).catch(function(){});
+          } catch(e) {}
+        }
       }
 
       function onPdfError(err) {
@@ -589,6 +612,17 @@ export function getPdfReaderHtml(
           page.render(renderContext).promise.then(function() {
             rendering = false;
             curPage = targetPageNum;
+
+            if (curPage === 1) {
+              try {
+                var thumb = renderCanvas.toDataURL("image/jpeg", 0.7);
+                post({
+                  type: "page_thumbnail",
+                  page: 1,
+                  dataUrl: thumb
+                });
+              } catch(e) {}
+            }
 
             if (direction === "none" || loadingEl) {
               hideLoading();

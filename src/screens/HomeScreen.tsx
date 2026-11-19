@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Image, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Easing, Image, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation";
 import { colors } from "../theme";
@@ -22,6 +22,32 @@ export default function HomeScreen({
   const [activeTab, setActiveTab] = useState<TabKey>(route.params?.tab ?? "home");
   const [familySetupOpen, setFamilySetupOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const prevTabRef = useRef<TabKey>(activeTab);
+
+  useEffect(() => {
+    if (prevTabRef.current !== activeTab) {
+      fadeAnim.setValue(0.2);
+      slideAnim.setValue(8);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 200,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+      prevTabRef.current = activeTab;
+    }
+  }, [activeTab, fadeAnim, slideAnim]);
 
   // Sync tab if route params change externally
   useEffect(() => {
@@ -78,8 +104,15 @@ export default function HomeScreen({
         }
       />
 
-      {/* Screen Content: changes seamlessly without re-rendering Header or BottomNavBar */}
-      <View style={{ flex: 1 }}>
+      {/* Screen Content: smooth animation on section changes */}
+      <Animated.View
+        key={activeTab}
+        style={{
+          flex: 1,
+          opacity: fadeAnim,
+          transform: [{ translateY: slideAnim }],
+        }}
+      >
         {activeTab === "home" && (
           <HomeDashboardView navigation={navigation} onSwitchTab={setActiveTab} />
         )}
@@ -87,7 +120,7 @@ export default function HomeScreen({
         {activeTab === "notes" && <NotesView navigation={navigation} />}
         {activeTab === "books" && <BooksView navigation={navigation} />}
         {activeTab === "reminders" && <RemindersView navigation={navigation} />}
-      </View>
+      </Animated.View>
 
       {/* Persistent Bottom Navigation Dock: [Documents] [Notes] [Home (Center)] [Reminders] */}
       <BottomNavBar active={activeTab} onChangeTab={setActiveTab} />

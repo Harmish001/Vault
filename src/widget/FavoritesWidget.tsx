@@ -6,6 +6,7 @@ import type { WidgetItem } from "../favorites";
 
 export const WIDGET_CARD = "FavoriteCard";
 export const WIDGET_CAROUSEL = "FavoritesCarousel";
+export const WIDGET_CURRENT_BOOK = "CurrentBookWidget";
 
 export type WidgetCard = WidgetItem & { thumb: string | null; isCopied?: boolean };
 

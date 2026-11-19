@@ -18,9 +18,23 @@ import { RootStackParamList } from "../navigation";
 import { useVault } from "../storage/vault";
 import { useLock } from "../lock/LockProvider";
 import { colors, fonts, noteColors, radius } from "../theme";
-import { daysUntil, expiryInfo, fileSearchText, folderPath, maskValue, plural } from "../utils";
+import {
+  daysUntil,
+  expiryInfo,
+  fileSearchText,
+  folderPath,
+  maskValue,
+  plural,
+} from "../utils";
 import { nextDue } from "../reminders-plan";
-import { DueBadge, ExpiryBadge, FavStar, FileRow, FileThumb, FolderRow } from "../components/Rows";
+import {
+  DueBadge,
+  ExpiryBadge,
+  FavStar,
+  FileRow,
+  FileThumb,
+  FolderRow,
+} from "../components/Rows";
 import { isFavorite } from "../favorites";
 import type { Folder, Note, VaultFile } from "../types";
 import { useFileActions, useFolderActions } from "../components/actions";
@@ -37,18 +51,32 @@ type Props = {
 };
 
 export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
-  const { folders, files, reminders, notes, books, fileUri, favorites, toggleFavorite, shareFile } = useVault();
+  const {
+    folders,
+    files,
+    reminders,
+    notes,
+    books,
+    fileUri,
+    favorites,
+    toggleFavorite,
+    shareFile,
+  } = useVault();
   const openFile = useOpenFile(navigation);
   const { noDeviceLock } = useLock();
   const [query, setQuery] = useState("");
-  const [compressTarget, setCompressTarget] = useState<CompressTarget | null>(null);
+  const [compressTarget, setCompressTarget] = useState<CompressTarget | null>(
+    null,
+  );
   const fileActions = useFileActions();
   const folderActions = useFolderActions();
   const { recentCopies } = useQuickCopy();
   const { bundles, shareBundle, getBundleFiles } = useShareBundles();
 
   const continueBook = useMemo(() => {
-    const readable = (books ?? []).filter((b) => b.type !== "external" && b.filePath);
+    const readable = (books ?? []).filter(
+      (b) => b.type !== "external" && b.filePath,
+    );
     if (!readable.length) return null;
     return [...readable].sort((a, b) => {
       const aTime = a.lastOpenedAt ?? a.addedAt;
@@ -95,15 +123,23 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
     () =>
       files
         .filter((f) => f.expiresOn && daysUntil(f.expiresOn) <= 60)
-        .sort((a, b) => (a.expiresOn as string).localeCompare(b.expiresOn as string)),
-    [files]
+        .sort((a, b) =>
+          (a.expiresOn as string).localeCompare(b.expiresOn as string),
+        ),
+    [files],
   );
 
   // Favorites list with full objects
   const favItems = useMemo(
     () =>
       favorites.flatMap(
-        (fav): ({ kind: "file"; file: VaultFile } | { kind: "folder"; folder: Folder } | { kind: "note"; note: Note })[] => {
+        (
+          fav,
+        ): (
+          | { kind: "file"; file: VaultFile }
+          | { kind: "folder"; folder: Folder }
+          | { kind: "note"; note: Note }
+        )[] => {
           if (fav.kind === "file") {
             const file = files.find((f) => f.id === fav.id);
             return file ? [{ kind: "file" as const, file }] : [];
@@ -114,21 +150,26 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
           }
           const note = notes.find((n) => n.id === fav.id);
           return note ? [{ kind: "note" as const, note }] : [];
-        }
+        },
       ),
-    [favorites, files, folders, notes]
+    [favorites, files, folders, notes],
   );
 
   // Overall search across Notes, Documents, and Folders
   const q = query.trim().toLowerCase();
   const searchResults = useMemo(() => {
     if (!q) return null;
-    const matchedFolders = folders.filter((f) => f.name.toLowerCase().includes(q));
+    const matchedFolders = folders.filter((f) =>
+      f.name.toLowerCase().includes(q),
+    );
     const matchedFiles = files.filter((f) => fileSearchText(f).includes(q));
     const matchedNotes = notes.filter(
-      (n) => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)
+      (n) =>
+        n.title.toLowerCase().includes(q) ||
+        n.content.toLowerCase().includes(q),
     );
-    const totalCount = matchedFolders.length + matchedFiles.length + matchedNotes.length;
+    const totalCount =
+      matchedFolders.length + matchedFiles.length + matchedNotes.length;
     return {
       folders: matchedFolders,
       files: matchedFiles,
@@ -143,21 +184,19 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
   };
 
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 110 }}
-      >
-        {noDeviceLock ? (
-          <View style={styles.warn}>
-            <Feather name="alert-triangle" size={18} color={colors.warnInk} />
-            <Text style={styles.warnText}>
-              This phone has no screen lock, so anyone who picks it up can open DocVault. Set a PIN, pattern or fingerprint in Android settings.
-            </Text>
-          </View>
-        ) : null}
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      {noDeviceLock ? (
+        <View style={styles.warn}>
+          <Feather name="alert-triangle" size={18} color={colors.warnInk} />
+          <Text style={styles.warnText}>
+            This phone has no screen lock, so anyone who picks it up can open
+            DocVault. Set a PIN, pattern or fingerprint in Android settings.
+          </Text>
+        </View>
+      ) : null}
 
-        {/* Unified Searchbar on Home */}
+      {/* Sticky Unified Searchbar on Home */}
+      <View style={styles.stickySearchWrapper}>
         <View style={styles.search}>
           <Feather name="search" size={18} color={colors.muted} />
           <TextInput
@@ -169,12 +208,22 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
             returnKeyType="search"
           />
           {query ? (
-            <Pressable onPress={() => setQuery("")} hitSlop={10} accessibilityLabel="Clear search">
+            <Pressable
+              onPress={() => setQuery("")}
+              hitSlop={10}
+              accessibilityLabel="Clear search"
+            >
               <Feather name="x" size={18} color={colors.muted} />
             </Pressable>
           ) : null}
         </View>
+      </View>
 
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: 110 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Search Results Display */}
         {searchResults !== null ? (
           <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
@@ -196,31 +245,54 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                       return (
                         <Pressable
                           key={n.id}
-                          onPress={() => navigation.navigate("NoteEdit", { id: n.id })}
+                          onPress={() =>
+                            navigation.navigate("NoteEdit", { id: n.id })
+                          }
                           style={[
                             styles.searchNoteCard,
-                            { backgroundColor: notePalette.bg, borderColor: notePalette.line },
+                            {
+                              backgroundColor: notePalette.bg,
+                              borderColor: notePalette.line,
+                            },
                           ]}
                           accessibilityRole="button"
                           accessibilityLabel={`Open note ${n.title}`}
                         >
                           <View style={{ flex: 1, marginRight: 8 }}>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
                               {n.isSecret ? (
-                                <Feather name="lock" size={13} color={colors.primary} />
+                                <Feather
+                                  name="lock"
+                                  size={13}
+                                  color={colors.primary}
+                                />
                               ) : null}
                               <Text
-                                style={[styles.searchNoteTitle, { color: notePalette.text }]}
+                                style={[
+                                  styles.searchNoteTitle,
+                                  { color: notePalette.text },
+                                ]}
                                 numberOfLines={1}
                               >
                                 {n.title || "Untitled Note"}
                               </Text>
                             </View>
                             <Text
-                              style={[styles.searchNoteContent, { color: colors.muted }]}
+                              style={[
+                                styles.searchNoteContent,
+                                { color: colors.muted },
+                              ]}
                               numberOfLines={2}
                             >
-                              {n.isSecret ? "••••••••" : n.content || "Empty note"}
+                              {n.isSecret
+                                ? "••••••••"
+                                : n.content || "Empty note"}
                             </Text>
                           </View>
                           <FavStar
@@ -264,7 +336,9 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                         key={f.id}
                         folder={f}
                         detail={folderPath(folders, f.id)}
-                        onPress={() => navigation.navigate("Folder", { id: f.id })}
+                        onPress={() =>
+                          navigation.navigate("Folder", { id: f.id })
+                        }
                       />
                     ))}
                   </View>
@@ -279,7 +353,13 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
             {recentCopies.length > 0 && (
               <View>
                 <View style={styles.sectionHead}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
                     <Feather name="copy" size={18} color={colors.primary} />
                     <Text style={styles.sectionTitle}>Quick Copy</Text>
                   </View>
@@ -294,7 +374,10 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                       key={`${item.sourceId}-${item.label}-${i}`}
                       onPress={async () => {
                         await Clipboard.setStringAsync(item.value);
-                        ToastAndroid.show(`${item.label} copied`, ToastAndroid.SHORT);
+                        ToastAndroid.show(
+                          `${item.label} copied`,
+                          ToastAndroid.SHORT,
+                        );
                       }}
                       style={({ pressed }) => [
                         styles.quickCopyChip,
@@ -340,7 +423,13 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
             {bundles.length > 0 && (
               <View>
                 <View style={styles.sectionHead}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
                     <Feather name="package" size={18} color={colors.accent} />
                     <Text style={styles.sectionTitle}>Share Bundles</Text>
                   </View>
@@ -363,7 +452,10 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                         key={bundle.id}
                         onPress={() =>
                           shareBundle(bundle.id).catch(() =>
-                            Alert.alert("Share failed", "Could not share bundle.")
+                            Alert.alert(
+                              "Share failed",
+                              "Could not share bundle.",
+                            ),
                           )
                         }
                         style={({ pressed }) => [
@@ -372,16 +464,25 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                         ]}
                       >
                         <View style={styles.bundleIconBox}>
-                          <Feather name="package" size={20} color={colors.accent} />
+                          <Feather
+                            name="package"
+                            size={20}
+                            color={colors.accent}
+                          />
                         </View>
                         <Text style={styles.bundleName} numberOfLines={1}>
                           {bundle.name}
                         </Text>
                         <Text style={styles.bundleSub} numberOfLines={1}>
-                          {bundleFiles.length} {bundleFiles.length === 1 ? "file" : "files"}
+                          {bundleFiles.length}{" "}
+                          {bundleFiles.length === 1 ? "file" : "files"}
                         </Text>
                         <View style={styles.bundleShareBtn}>
-                          <Feather name="share-2" size={14} color={colors.onPrimary} />
+                          <Feather
+                            name="share-2"
+                            size={14}
+                            color={colors.onPrimary}
+                          />
                           <Text style={styles.bundleShareText}>Share</Text>
                         </View>
                       </Pressable>
@@ -402,11 +503,19 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
             <View style={styles.statsRow}>
               <Pressable
                 onPress={() => onSwitchTab?.("documents")}
-                style={({ pressed }) => [styles.statCard, pressed && { opacity: 0.85 }]}
+                style={({ pressed }) => [
+                  styles.statCard,
+                  pressed && { opacity: 0.85 },
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="Go to Documents"
               >
-                <View style={[styles.statIconBox, { backgroundColor: colors.primary + "16" }]}>
+                <View
+                  style={[
+                    styles.statIconBox,
+                    { backgroundColor: colors.primary + "16" },
+                  ]}
+                >
                   <Feather name="folder" size={18} color={colors.primary} />
                 </View>
                 <Text style={styles.statNumber}>{files.length}</Text>
@@ -415,11 +524,19 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
 
               <Pressable
                 onPress={() => onSwitchTab?.("notes")}
-                style={({ pressed }) => [styles.statCard, pressed && { opacity: 0.85 }]}
+                style={({ pressed }) => [
+                  styles.statCard,
+                  pressed && { opacity: 0.85 },
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="Go to Notes"
               >
-                <View style={[styles.statIconBox, { backgroundColor: colors.accent + "18" }]}>
+                <View
+                  style={[
+                    styles.statIconBox,
+                    { backgroundColor: colors.accent + "18" },
+                  ]}
+                >
                   <Feather name="edit-3" size={18} color={colors.accent} />
                 </View>
                 <Text style={styles.statNumber}>{notes.length}</Text>
@@ -428,11 +545,19 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
 
               <Pressable
                 onPress={() => onSwitchTab?.("reminders")}
-                style={({ pressed }) => [styles.statCard, pressed && { opacity: 0.85 }]}
+                style={({ pressed }) => [
+                  styles.statCard,
+                  pressed && { opacity: 0.85 },
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="Go to Reminders"
               >
-                <View style={[styles.statIconBox, { backgroundColor: colors.primary + "16" }]}>
+                <View
+                  style={[
+                    styles.statIconBox,
+                    { backgroundColor: colors.primary + "16" },
+                  ]}
+                >
                   <Feather name="bell" size={18} color={colors.primary} />
                 </View>
                 <Text style={styles.statNumber}>{reminders.length}</Text>
@@ -443,23 +568,29 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
             {/* Quick Compressor Tool */}
             <Pressable
               onPress={pickAndCompress}
-              style={({ pressed }) => [styles.compressBanner, pressed && { opacity: 0.9 }]}
+              style={({ pressed }) => [
+                styles.compressBanner,
+                pressed && { opacity: 0.9 },
+              ]}
               accessibilityRole="button"
               accessibilityLabel="Compress PDF or Photos"
             >
               <View style={styles.compressIconBox}>
-                <Feather name="minimize-2" size={18} color={colors.primary} />
+                <Feather name="minimize-2" size={18} color={"white"} />
               </View>
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={styles.compressTitle}>Compress PDF & Photos</Text>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <Text style={styles.compressTitle}>
+                    Compress PDF & Photos
+                  </Text>
                   <View style={styles.compressBadge}>
-                    <Text style={styles.compressBadgeText}>Under 50-500 KB</Text>
+                    <Text style={styles.compressBadgeText}>
+                      Under 50-500 KB
+                    </Text>
                   </View>
                 </View>
-                <Text style={styles.compressSub} numberOfLines={1}>
-                  Fit photo & doc size limits for UPSC, SSC & portal uploads
-                </Text>
               </View>
               <Feather name="chevron-right" size={18} color={colors.muted} />
             </Pressable>
@@ -468,8 +599,18 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
             {continueBook && (
               <View>
                 <View style={styles.sectionHead}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-                    <Feather name="book-open" size={18} color={colors.primary} />
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
+                    <Feather
+                      name="book-open"
+                      size={18}
+                      color={colors.primary}
+                    />
                     <Text style={styles.sectionTitle}>Continue Reading</Text>
                   </View>
                   <Pressable
@@ -484,19 +625,32 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
 
                 <Pressable
                   onPress={() => {
-                    if (continueBook.type === "epub" || continueBook.type === "pdf") {
-                      navigation.navigate("BookReader", { bookId: continueBook.id });
+                    if (
+                      continueBook.type === "epub" ||
+                      continueBook.type === "pdf"
+                    ) {
+                      navigation.navigate("BookReader", {
+                        bookId: continueBook.id,
+                      });
                     } else {
-                      navigation.navigate("BookDetail", { bookId: continueBook.id });
+                      navigation.navigate("BookDetail", {
+                        bookId: continueBook.id,
+                      });
                     }
                   }}
-                  style={({ pressed }) => [styles.continueHero, pressed && { opacity: 0.92 }]}
+                  style={({ pressed }) => [
+                    styles.continueHero,
+                    pressed && { opacity: 0.92 },
+                  ]}
                   accessibilityRole="button"
                   accessibilityLabel={`Continue reading ${continueBook.title}`}
                 >
                   <View style={styles.continueCover}>
                     {continueBook.coverPath ? (
-                      <Image source={{ uri: continueBook.coverPath }} style={styles.continueCoverImg} />
+                      <Image
+                        source={{ uri: continueBook.coverPath }}
+                        style={styles.continueCoverImg}
+                      />
                     ) : (
                       <View style={styles.continueCoverFallback}>
                         <Feather name="book" size={24} color={colors.primary} />
@@ -504,41 +658,64 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                     )}
                   </View>
                   <View style={{ flex: 1, justifyContent: "center" }}>
-                    <Text style={styles.continueTitle} numberOfLines={1}>{continueBook.title}</Text>
+                    <Text style={styles.continueTitle} numberOfLines={1}>
+                      {continueBook.title}
+                    </Text>
                     {continueBook.author ? (
-                      <Text style={styles.continueAuthor} numberOfLines={1}>{continueBook.author}</Text>
+                      <Text style={styles.continueAuthor} numberOfLines={1}>
+                        {continueBook.author}
+                      </Text>
                     ) : null}
                     <View style={styles.continueProgressBg}>
-                      <View style={[styles.continueProgressFill, { width: `${Math.round(continueBook.progress.percentage * 100)}%` }]} />
+                      <View
+                        style={[
+                          styles.continueProgressFill,
+                          {
+                            width: `${Math.round(continueBook.progress.percentage * 100)}%`,
+                          },
+                        ]}
+                      />
                     </View>
                     <Text style={styles.continuePct}>
                       {Math.round(continueBook.progress.percentage * 100)}%
-                      {continueBook.progress.chapterLabel ? ` · ${continueBook.progress.chapterLabel}` : ""}
+                      {continueBook.progress.chapterLabel
+                        ? ` · ${continueBook.progress.chapterLabel}`
+                        : ""}
                     </Text>
                   </View>
-                  <Feather name="chevron-right" size={18} color={colors.muted} />
+                  <Feather
+                    name="chevron-right"
+                    size={18}
+                    color={colors.muted}
+                  />
                 </Pressable>
               </View>
             )}
 
-            {/* Favorites Section */}
-            <View>
-              <View style={styles.sectionHead}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-                  <Feather name="star" size={18} color={colors.primary} />
-                  <Text style={styles.sectionTitle}>Favorites</Text>
+            {/* Favorites Section: only shown if there are favorites */}
+            {favItems.length > 0 && (
+              <View>
+                <View style={styles.sectionHead}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
+                    <Feather name="star" size={18} color={colors.primary} />
+                    <Text style={styles.sectionTitle}>Favorites</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => navigation.navigate("Favorites")}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit favorites"
+                  >
+                    <Text style={styles.sectionAction}>Edit</Text>
+                  </Pressable>
                 </View>
-                <Pressable
-                  onPress={() => navigation.navigate("Favorites")}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="Edit favorites"
-                >
-                  <Text style={styles.sectionAction}>Edit</Text>
-                </Pressable>
-              </View>
 
-              {favItems.length > 0 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -550,7 +727,10 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                         key={it.file.id}
                         onPress={() => openFile(it.file)}
                         onLongPress={() => fileActions.open(it.file)}
-                        style={({ pressed }) => [styles.favCard, pressed && { opacity: 0.85 }]}
+                        style={({ pressed }) => [
+                          styles.favCard,
+                          pressed && { opacity: 0.85 },
+                        ]}
                         accessibilityRole="button"
                         accessibilityLabel={`Open ${it.file.name}`}
                       >
@@ -564,7 +744,7 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                           <Pressable
                             onPress={() =>
                               shareFile(it.file).catch(() =>
-                                Alert.alert("Couldn't share this file")
+                                Alert.alert("Couldn't share this file"),
                               )
                             }
                             hitSlop={10}
@@ -572,7 +752,11 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                             accessibilityRole="button"
                             accessibilityLabel={`Share ${it.file.name}`}
                           >
-                            <Feather name="share-2" size={16} color={colors.primary} />
+                            <Feather
+                              name="share-2"
+                              size={16}
+                              color={colors.primary}
+                            />
                           </Pressable>
                         </View>
                         <Text style={styles.favName} numberOfLines={2}>
@@ -585,7 +769,9 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                     ) : it.kind === "folder" ? (
                       <Pressable
                         key={it.folder.id}
-                        onPress={() => navigation.navigate("Folder", { id: it.folder.id })}
+                        onPress={() =>
+                          navigation.navigate("Folder", { id: it.folder.id })
+                        }
                         onLongPress={() => folderActions.open(it.folder)}
                         style={({ pressed }) => [
                           styles.favCard,
@@ -601,7 +787,11 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                             { backgroundColor: it.folder.color + "26" },
                           ]}
                         >
-                          <Feather name="folder" size={20} color={it.folder.color} />
+                          <Feather
+                            name="folder"
+                            size={20}
+                            color={it.folder.color}
+                          />
                         </View>
                         <Text style={styles.favName} numberOfLines={2}>
                           {it.folder.name}
@@ -613,8 +803,13 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                     ) : (
                       <Pressable
                         key={it.note.id}
-                        onPress={() => navigation.navigate("NoteEdit", { id: it.note.id })}
-                        style={({ pressed }) => [styles.favCard, pressed && { opacity: 0.85 }]}
+                        onPress={() =>
+                          navigation.navigate("NoteEdit", { id: it.note.id })
+                        }
+                        style={({ pressed }) => [
+                          styles.favCard,
+                          pressed && { opacity: 0.85 },
+                        ]}
                         accessibilityRole="button"
                         accessibilityLabel={`Open note ${it.note.title}`}
                       >
@@ -641,14 +836,20 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                               Share.share({
                                 title: it.note.title,
                                 message: it.note.content,
-                              }).catch(() => Alert.alert("Couldn't share this note"))
+                              }).catch(() =>
+                                Alert.alert("Couldn't share this note"),
+                              )
                             }
                             hitSlop={10}
                             style={styles.favShare}
                             accessibilityRole="button"
                             accessibilityLabel={`Share ${it.note.title}`}
                           >
-                            <Feather name="share-2" size={16} color={colors.primary} />
+                            <Feather
+                              name="share-2"
+                              size={16}
+                              color={colors.primary}
+                            />
                           </Pressable>
                         </View>
                         <Text style={styles.favName} numberOfLines={2}>
@@ -658,36 +859,38 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                           {it.note.isSecret ? "Secure note" : "Note"}
                         </Text>
                       </Pressable>
-                    )
+                    ),
                   )}
                 </ScrollView>
-              ) : (
-                <View style={styles.emptyCard}>
-                  <Text style={styles.emptyCardText}>
-                    Star your most important documents, folders, or notes to keep them right here on the dashboard.
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* Needs Attention & Reminders Section (With Star/Favorite Option) */}
-            <View>
-              <View style={styles.sectionHead}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-                  <Feather name="bell" size={18} color={colors.primary} />
-                  <Text style={styles.sectionTitle}>Reminders & Expiries</Text>
-                </View>
-                <Pressable
-                  onPress={() => onSwitchTab?.("reminders")}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="View all reminders"
-                >
-                  <Text style={styles.sectionAction}>View all</Text>
-                </Pressable>
               </View>
+            )}
 
-              {dueSoon.length > 0 || expiringFiles.length > 0 ? (
+            {/* Needs Attention & Reminders Section: only shown if there are reminders or expiries */}
+            {(dueSoon.length > 0 || expiringFiles.length > 0) && (
+              <View>
+                <View style={styles.sectionHead}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
+                    <Feather name="bell" size={18} color={colors.primary} />
+                    <Text style={styles.sectionTitle}>
+                      Reminders & Expiries
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => onSwitchTab?.("reminders")}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="View all reminders"
+                  >
+                    <Text style={styles.sectionAction}>View all</Text>
+                  </Pressable>
+                </View>
+
                 <View style={styles.attentionBox}>
                   {dueSoon.slice(0, 4).map(({ r, due }) => (
                     <Pressable
@@ -702,7 +905,9 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                           {r.title}
                         </Text>
                         <Text style={styles.attentionSub} numberOfLines={1}>
-                          {[r.amount?.trim(), "Reminder"].filter(Boolean).join("  •  ")}
+                          {[r.amount?.trim(), "Reminder"]
+                            .filter(Boolean)
+                            .join("  •  ")}
                         </Text>
                       </View>
                       <DueBadge iso={due as string} />
@@ -715,7 +920,9 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                     return (
                       <Pressable
                         key={f.id}
-                        onPress={() => navigation.navigate("FileDetails", { fileId: f.id })}
+                        onPress={() =>
+                          navigation.navigate("FileDetails", { fileId: f.id })
+                        }
                         style={styles.attentionRow}
                         accessibilityRole="button"
                         accessibilityLabel={`${f.name}. ${e.label}`}
@@ -728,7 +935,13 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                             {folderPath(folders, f.folderId)}
                           </Text>
                         </View>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
                           <ExpiryBadge iso={f.expiresOn as string} />
                           <FavStar
                             on={isFav}
@@ -740,14 +953,8 @@ export default function HomeDashboardView({ navigation, onSwitchTab }: Props) {
                     );
                   })}
                 </View>
-              ) : (
-                <View style={styles.emptyCard}>
-                  <Text style={styles.emptyCardText}>
-                    No upcoming reminders or expiring documents. You're all caught up!
-                  </Text>
-                </View>
-              )}
-            </View>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -782,6 +989,12 @@ const styles = StyleSheet.create({
     color: colors.warnInk,
     flex: 1,
   },
+  stickySearchWrapper: {
+    backgroundColor: colors.bg,
+    paddingTop: 4,
+    paddingBottom: 2,
+    zIndex: 10,
+  },
   search: {
     flexDirection: "row",
     alignItems: "center",
@@ -792,7 +1005,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 8,
     gap: 10,
   },
   searchInput: {
