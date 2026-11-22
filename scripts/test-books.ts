@@ -198,6 +198,18 @@ async function runTests() {
   assert.strictEqual(decodeURIComponent(match![1]), testBookId, "Book ID decoded correctly from deep link");
   console.log("ok - Widget deep link for bypassing unlock and opening book directly");
 
+  // Test 8: CurrentBookWidget configuration in app.json is 3x3
+  const fs = await import("node:fs");
+  const appJson = JSON.parse(fs.readFileSync("app.json", "utf-8"));
+  const plugins = appJson.expo.plugins;
+  const widgetPlugin = plugins.find((p: any) => Array.isArray(p) && p[0] === "react-native-android-widget");
+  assert.ok(widgetPlugin, "react-native-android-widget plugin found in app.json");
+  const currentBookWidgetConfig = widgetPlugin[1].widgets.find((w: any) => w.name === "CurrentBookWidget");
+  assert.ok(currentBookWidgetConfig, "CurrentBookWidget found in widget config");
+  assert.strictEqual(currentBookWidgetConfig.targetCellWidth, 3, "CurrentBookWidget targetCellWidth is 3");
+  assert.strictEqual(currentBookWidgetConfig.targetCellHeight, 3, "CurrentBookWidget targetCellHeight is 3");
+  console.log("ok - CurrentBookWidget app.json 3x3 configuration verified");
+
   console.log("All books and reader tests passed successfully!");
 }
 
