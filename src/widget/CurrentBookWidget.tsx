@@ -10,11 +10,11 @@ const link = (id: string) => `docvault://widget/book?id=${encodeURIComponent(id)
 
 const ICON = {
   book: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
-  play: '<polygon points="5 3 19 12 5 21 5 3"/>',
+  play: '<polygon points="6 4 19 12 6 20 6 4"/>',
 };
 
-const svg = (body: string, color: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const svg = (body: string, color: string, fill = "none") =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="${fill}" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 
 export function CurrentBookWidget({
   book,
@@ -33,7 +33,7 @@ export function CurrentBookWidget({
           height: "match_parent",
           width: "match_parent",
           backgroundColor: hex(colors.primaryDark),
-          borderRadius: 20,
+          borderRadius: 22,
           padding: 14,
           flexDirection: "column",
           justifyContent: "center",
@@ -56,6 +56,7 @@ export function CurrentBookWidget({
         <TextWidget
           text={unavailable ? "Open DocVault to load books." : "No book currently being read."}
           maxLines={2}
+          truncate="END"
           style={{
             fontSize: 13,
             fontWeight: "700",
@@ -94,8 +95,8 @@ export function CurrentBookWidget({
         height: "match_parent",
         width: "match_parent",
         backgroundColor: hex(colors.primaryDark),
-        borderRadius: 20,
-        padding: 10,
+        borderRadius: 22,
+        padding: 12,
         flexDirection: "column",
         justifyContent: "space-between",
       }}
@@ -107,19 +108,30 @@ export function CurrentBookWidget({
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 6,
+          marginBottom: 8,
         }}
       >
         <FlexWidget style={{ flexDirection: "row", alignItems: "center" }}>
-          <SvgWidget svg={svg(ICON.book, colors.primaryLight)} style={{ width: 13, height: 13 }} />
+          <FlexWidget
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              backgroundColor: hex("#332A2D"),
+              justifyContent: "center",
+              alignItems: "center",
+              marginRight: 6,
+            }}
+          >
+            <SvgWidget svg={svg(ICON.book, colors.primaryLight)} style={{ width: 11, height: 11 }} />
+          </FlexWidget>
           <TextWidget
             text="CURRENTLY READING"
             style={{
               fontSize: 9.5,
               fontWeight: "700",
               color: hex(colors.onDarkMuted),
-              letterSpacing: 0.5,
-              marginLeft: 4,
+              letterSpacing: 0.6,
             }}
           />
         </FlexWidget>
@@ -127,9 +139,9 @@ export function CurrentBookWidget({
         <FlexWidget
           style={{
             backgroundColor: hex("#332A2D"),
-            paddingHorizontal: 5,
-            paddingVertical: 1,
-            borderRadius: 4,
+            paddingHorizontal: 6,
+            paddingVertical: 2,
+            borderRadius: 6,
           }}
         >
           <TextWidget
@@ -143,7 +155,7 @@ export function CurrentBookWidget({
         </FlexWidget>
       </FlexWidget>
 
-      {/* Center content: Cover on left, Info on right */}
+      {/* Center content: Cover on left, Info & Controls on right */}
       <FlexWidget
         style={{
           width: "match_parent",
@@ -156,24 +168,24 @@ export function CurrentBookWidget({
         {coverThumb ? (
           <ImageWidget
             image={coverThumb as `data:image${string}`}
-            imageWidth={52}
-            imageHeight={72}
-            radius={6}
+            imageWidth={60}
+            imageHeight={84}
+            radius={8}
             resizeMode="cover"
           />
         ) : (
           <FlexWidget
             style={{
-              width: 52,
-              height: 72,
-              borderRadius: 6,
+              width: 60,
+              height: 84,
+              borderRadius: 8,
               backgroundColor: hex("#332A2D"),
               justifyContent: "center",
               alignItems: "center",
               padding: 4,
             }}
           >
-            <SvgWidget svg={svg(ICON.book, colors.primaryLight)} style={{ width: 22, height: 22 }} />
+            <SvgWidget svg={svg(ICON.book, colors.primaryLight)} style={{ width: 24, height: 24 }} />
           </FlexWidget>
         )}
 
@@ -181,22 +193,23 @@ export function CurrentBookWidget({
         <FlexWidget
           style={{
             flex: 1,
-            height: "match_parent",
-            marginLeft: 8,
+            height: 84,
+            marginLeft: 10,
             flexDirection: "column",
             justifyContent: "space-between",
           }}
         >
+          {/* Title & Author */}
           <FlexWidget style={{ flexDirection: "column" }}>
             <TextWidget
               text={book.title}
-              maxLines={2}
+              maxLines={1}
               truncate="END"
               style={{
-                fontSize: 12.5,
+                fontSize: 13,
                 fontWeight: "700",
                 color: hex(colors.onPrimary),
-                lineHeight: 16,
+                lineHeight: 17,
               }}
             />
             {book.author ? (
@@ -207,41 +220,72 @@ export function CurrentBookWidget({
                 style={{
                   fontSize: 10.5,
                   color: hex(colors.onDarkMuted),
-                  marginTop: 1,
+                  marginTop: 2,
                 }}
               />
             ) : null}
           </FlexWidget>
 
-          {/* Progress bar & resume */}
-          <FlexWidget style={{ flexDirection: "column", marginTop: 4 }}>
-            <TextWidget
-              text={progressText}
-              maxLines={1}
-              truncate="END"
+          {/* Progress & Resume Icon */}
+          <FlexWidget style={{ flexDirection: "column" }}>
+            <FlexWidget
               style={{
-                fontSize: 9.5,
-                fontWeight: "600",
-                color: hex(colors.onDarkMuted),
-                marginBottom: 3,
+                width: "match_parent",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 5,
               }}
-            />
+            >
+              <FlexWidget style={{ flex: 1, marginRight: 8 }}>
+                <TextWidget
+                  text={progressText}
+                  maxLines={1}
+                  truncate="END"
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: "600",
+                    color: hex(colors.onDarkMuted),
+                  }}
+                />
+              </FlexWidget>
+
+              {/* Resume action icon button */}
+              <FlexWidget
+                clickAction="OPEN_URI"
+                clickActionData={{ uri: link(book.id) }}
+                accessibilityLabel={`Resume ${book.title}`}
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 13,
+                  backgroundColor: hex(colors.primary),
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <SvgWidget
+                  svg={svg(ICON.play, colors.onPrimary, colors.onPrimary)}
+                  style={{ width: 10, height: 10, marginLeft: 1 }}
+                />
+              </FlexWidget>
+            </FlexWidget>
+
             {/* Progress bar */}
             <FlexWidget
               style={{
                 width: "match_parent",
-                height: 3,
+                height: 3.5,
                 borderRadius: 2,
                 backgroundColor: hex("#3D3336"),
                 flexDirection: "row",
                 overflow: "hidden",
-                marginBottom: 6,
               }}
             >
               <FlexWidget
                 style={{
                   flex: Math.max(1, pct),
-                  height: 3,
+                  height: 3.5,
                   backgroundColor: hex(colors.primaryLight),
                   borderRadius: 2,
                 }}
@@ -250,35 +294,10 @@ export function CurrentBookWidget({
                 <FlexWidget
                   style={{
                     flex: 100 - Math.max(1, pct),
-                    height: 3,
+                    height: 3.5,
                   }}
                 />
               ) : null}
-            </FlexWidget>
-
-            {/* Resume button */}
-            <FlexWidget style={{ flexDirection: "row", alignItems: "flex-start" }}>
-              <FlexWidget
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  backgroundColor: hex(colors.primary),
-                  paddingHorizontal: 8,
-                  paddingVertical: 3,
-                  borderRadius: 10,
-                }}
-              >
-                <SvgWidget svg={svg(ICON.play, colors.onPrimary)} style={{ width: 10, height: 10 }} />
-                <TextWidget
-                  text="Resume"
-                  style={{
-                    fontSize: 10,
-                    fontWeight: "700",
-                    color: hex(colors.onPrimary),
-                    marginLeft: 3,
-                  }}
-                />
-              </FlexWidget>
             </FlexWidget>
           </FlexWidget>
         </FlexWidget>
