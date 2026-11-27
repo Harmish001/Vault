@@ -3,6 +3,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from "react-native";
@@ -54,20 +55,33 @@ export default function DocumentsView({ navigation }: Props) {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 120 }}
       >
-        {/* Document-specific searchbar */}
-        <View style={styles.search}>
-          <Feather name="search" size={18} color={colors.muted} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search folders and document names"
-            placeholderTextColor={colors.muted}
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-          {query ? (
-            <Pressable onPress={() => setQuery("")} hitSlop={10} accessibilityLabel="Clear search">
-              <Feather name="x" size={18} color={colors.muted} />
+        {/* Document-specific searchbar + cross-folder Share trigger */}
+        <View style={styles.searchRow}>
+          <View style={styles.search}>
+            <Feather name="search" size={18} color={colors.muted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search folders and document names"
+              placeholderTextColor={colors.muted}
+              style={styles.searchInput}
+              returnKeyType="search"
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery("")} hitSlop={10} accessibilityLabel="Clear search">
+                <Feather name="x" size={18} color={colors.muted} />
+              </Pressable>
+            ) : null}
+          </View>
+          {files.length > 0 ? (
+            <Pressable
+              onPress={() => navigation.navigate("ShareFiles")}
+              accessibilityRole="button"
+              accessibilityLabel="Share multiple files"
+              style={({ pressed }) => [styles.shareBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Feather name="share-2" size={17} color={colors.primary} />
+              <Text style={styles.shareBtnText}>Share</Text>
             </Pressable>
           ) : null}
         </View>
@@ -156,7 +170,15 @@ export default function DocumentsView({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    gap: 8,
+  },
   search: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -165,8 +187,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    marginHorizontal: 16,
-    marginBottom: 12,
     gap: 10,
   },
   searchInput: {
@@ -175,5 +195,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.ink,
     padding: 0,
+  },
+  shareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primaryLine,
+    borderRadius: radius.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  shareBtnText: {
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+    color: colors.primary,
   },
 });

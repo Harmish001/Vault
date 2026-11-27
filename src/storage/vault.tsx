@@ -32,6 +32,8 @@ import { pruneFavorites, toggleFavorite as toggleFav } from "../favorites";
 export type FilePatch = Partial<Pick<VaultFile, "notes" | "tags" | "expiresOn" | "fields" | "size">>;
 import { extOf, guessMime, mergeTags, stripFileScheme, uid, uniqueName } from "../utils";
 import { openFile } from "../openFile";
+import { shareMultipleNative } from "../documents-provider";
+import { commonShareMime } from "../sharing/multiShare";
 
 const safeName = (name: string) => name.replace(/[\\/:*?"<>|]/g, "_");
 import { SCANNER_TMP, SCAN_OUT } from "../scan/paths";
@@ -257,6 +259,7 @@ async function clearTempFiles() {
     await FileSystem.deleteAsync(RESTORE_DIR, { idempotent: true });
     await FileSystem.deleteAsync(EPHEMERAL_DIR, { idempotent: true });
     await FileSystem.deleteAsync(EPHEMERAL_THUMBS_DIR, { idempotent: true });
+    await FileSystem.deleteAsync(CACHE + "documents_provider_cache/", { idempotent: true });
     const names = await FileSystem.readDirectoryAsync(CACHE);
     await Promise.all(
       names
@@ -317,6 +320,8 @@ type Ctx = {
   /** replaces an existing file's content on disk with encrypted content */
   replaceFileContent: (id: string, newFileUri: string, newSize?: number) => Promise<void>;
   shareFile: (f: VaultFile) => Promise<void>;
+  /** shares 1 or more decrypted files directly via Android's share sheet */
+  shareFiles: (files: VaultFile[]) => Promise<void>;
   /** copies under their real names into a folder the user picks; resolves how many were saved (0 if cancelled) */
   exportFiles: (files: VaultFile[]) => Promise<number>;
   shareFilesZip: (files: VaultFile[]) => Promise<void>;
@@ -943,6 +948,35 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     await Sharing.shareAsync(tmp, { mimeType: f.mime, dialogTitle: f.name });
   };
 
+  const shareFiles: Ctx["shareFiles"] = async (list) => {
+    if (!list.length) return;
+    if (list.length === 1) return shareFile(list[0]);
+
+    const dir = SHARE_DIR + "multi/";
+    await FileSystem.deleteAsync(dir, { idempotent: true });
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+
+    const taken: string[] = [];
+    const contentUris: string[] = [];
+    for (const f of list) {
+      const name = uniqueName(taken, safeName(f.name));
+      taken.push(name);
+      const dest = dir + name;
+      const decUri = await getDecryptedUri(f);
+      await FileSystem.copyAsync({ from: decUri, to: dest });
+      contentUris.push(await FileSystem.getContentUriAsync(dest));
+    }
+
+    const handled = await shareMultipleNative(
+      contentUris,
+      commonShareMime(list),
+      `Share ${list.length} files`
+    );
+    if (!handled) {
+      await shareFilesZip(list);
+    }
+  };
+
   const exportFiles: Ctx["exportFiles"] = async (list) => {
     const dir = await PickedDirectory.pickDirectoryAsync().catch(() => null);
     if (!dir) return 0; // picker cancelled
@@ -1225,6 +1259,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     getDecryptedUri,
     replaceFileContent,
     shareFile,
+    shareFiles,
     exportFiles,
     shareFilesZip,
     canZip: zipReady(),

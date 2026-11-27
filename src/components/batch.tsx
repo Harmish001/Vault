@@ -87,6 +87,7 @@ export function useFileSelection(visible: VaultFile[], currentFolderId?: string)
 
   const actions: { icon: React.ComponentProps<typeof Feather>["name"]; label: string; onPress: () => void; danger?: boolean }[] = [
     { icon: "corner-down-right", label: "Move", onPress: () => setMove(true) },
+    { icon: "share-2", label: "Share", onPress: () => run("share these files", () => vault.shareFiles(selected)) },
     { icon: "download", label: "Export", onPress: () => setExportMenu(true) },
     { icon: "tag", label: "Tag", onPress: () => setTag(true) },
     {
@@ -120,7 +121,7 @@ export function useFileSelection(visible: VaultFile[], currentFolderId?: string)
           style={({ pressed }) => [styles.barBtn, (pressed || busy) && { opacity: 0.6 }]}
         >
           <Feather name={a.icon} size={20} color={a.danger ? colors.danger : colors.primary} />
-          <Text style={[styles.barLabel, a.danger && { color: colors.danger }]}>{a.label}</Text>
+          <Text style={[styles.barLabel, a.danger && { color: colors.danger }]} numberOfLines={1}>{a.label}</Text>
         </Pressable>
       ))}
     </View>
@@ -183,11 +184,14 @@ export function useFileSelection(visible: VaultFile[], currentFolderId?: string)
               navigation.navigate("SmartShare", { preselectedFileIds: fileIds });
             },
           },
-          ...(selected.length === 1
-            ? [{ label: "Share", icon: "share-2" as const, onPress: () => run("share this file", () => vault.shareFile(selected[0])) }]
-            : vault.canZip
-              ? [{ label: "Share as one zip file", icon: "share-2" as const, onPress: () => run("share these files", () => vault.shareFilesZip(selected)) }]
-              : []),
+          {
+            label: "Share",
+            icon: "share-2" as const,
+            onPress: () => run("share these files", () => vault.shareFiles(selected)),
+          },
+          ...(selected.length > 1 && vault.canZip
+            ? [{ label: "Share as one zip file", icon: "archive" as const, onPress: () => run("share these files", () => vault.shareFilesZip(selected)) }]
+            : []),
         ]}
       />
     </>
@@ -214,5 +218,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
   },
   barBtn: { flex: 1, alignItems: "center", gap: 3, paddingVertical: 8 },
-  barLabel: { fontFamily: fonts.semibold, fontSize: 13, color: colors.primary },
+  barLabel: { fontFamily: fonts.semibold, fontSize: 12, color: colors.primary },
 });

@@ -123,11 +123,7 @@ export default function SmartShareScreen({
       return;
     }
     try {
-      if (chosenFiles.length === 1) {
-        await vault.shareFile(chosenFiles[0]);
-      } else {
-        await vault.shareFilesZip(chosenFiles);
-      }
+      await vault.shareFiles(chosenFiles);
     } catch (e) {
       Alert.alert("Direct Share failed", e instanceof Error ? e.message : "Could not open share sheet.");
     }

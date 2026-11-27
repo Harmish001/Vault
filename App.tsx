@@ -38,6 +38,7 @@ import NoteEditScreen from "./src/screens/NoteEditScreen";
 import SmartShareScreen from "./src/screens/SmartShareScreen";
 import ShareQRScreen from "./src/screens/ShareQRScreen";
 import ShareBundlesScreen from "./src/screens/ShareBundlesScreen";
+import ShareFilesScreen from "./src/screens/ShareFilesScreen";
 import FileViewerScreen from "./src/screens/FileViewerScreen";
 import BookReaderScreen from "./src/screens/BookReaderScreen";
 import BookDetailScreen from "./src/screens/BookDetailScreen";
@@ -332,6 +333,7 @@ function Shell({ fontsReady }: { fontsReady: boolean }) {
         <Stack.Screen name="ReminderEdit" component={ReminderEditScreen} />
         <Stack.Screen name="ShareChooser" component={ShareChooserScreen} />
         <Stack.Screen name="ShareBundles" component={ShareBundlesScreen} />
+        <Stack.Screen name="ShareFiles" component={ShareFilesScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />
         <Stack.Screen name="MyCard" component={MyCardScreen} />
         <Stack.Screen name="Notes" component={NotesScreen} options={{ animation: "none" }} />

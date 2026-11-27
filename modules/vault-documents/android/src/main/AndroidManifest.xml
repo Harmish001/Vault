@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.SEND_MULTIPLE" />
+      <data android:mimeType="*/*" />
+    </intent>
+  </queries>
   <application>
     <provider
       android:name="expo.modules.vaultdocuments.VaultDocumentsProvider"
