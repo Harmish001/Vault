@@ -62,4 +62,16 @@ assert(payload.files.length === 3, "Payload contains all files");
 assert(payload.files[0].displayName === aadhaarName, "Payload file carries formatted picker display name");
 assert(payload.files[0].searchTerms.includes("1234 5678 9012"), "Payload file search terms index field values");
 
+const fallbackFile: VaultFile = {
+  id: "f4",
+  folderId: "me",
+  name: "Receipt.pdf",
+  mime: "application/octet-stream",
+  size: 256,
+  storedAs: "f4.pdf",
+  addedAt: 4000,
+};
+const fallbackPayload = buildDocumentsProviderPayload(folders, [fallbackFile]);
+assert(fallbackPayload.files[0].mime === "application/pdf", "Generic octet-stream MIME resolves to application/pdf from filename");
+
 console.log("All documents provider tests passed successfully!");

@@ -31,6 +31,7 @@ internal class VaultDocFile(
 
 internal class VaultDocumentsData(
   val enabled: Boolean,
+  val masterKeyBase64: String?,
   val folders: List<VaultDocFolder>,
   val files: List<VaultDocFile>
 )
@@ -40,10 +41,13 @@ internal object DocumentStore {
 
   private fun file(context: Context) = File(context.noBackupFilesDir, "documents_provider.bin")
 
+  fun cacheDir(context: Context) = File(context.cacheDir, "documents_provider_cache")
+
   fun hasData(context: Context) = file(context).exists()
 
   fun clear(context: Context) {
     file(context).delete()
+    cacheDir(context).deleteRecursively()
   }
 
   private fun key(): SecretKey {
@@ -60,9 +64,12 @@ internal object DocumentStore {
     return gen.generateKey()
   }
 
-  fun write(context: Context, json: String, enabled: Boolean) {
+  fun write(context: Context, json: String, enabled: Boolean, masterKeyBase64: String? = null) {
     val payload = JSONObject().apply {
       put("enabled", enabled)
+      if (!masterKeyBase64.isNullOrEmpty()) {
+        put("masterKeyBase64", masterKeyBase64)
+      }
       put("data", JSONObject(json))
     }.toString()
 
@@ -87,6 +94,7 @@ internal object DocumentStore {
       val raw = String(cipher.doFinal(bytes, 1 + ivLen, bytes.size - 1 - ivLen), Charsets.UTF_8)
       val root = JSONObject(raw)
       val enabled = root.optBoolean("enabled", true)
+      val masterKeyBase64 = if (root.isNull("masterKeyBase64")) null else root.optString("masterKeyBase64", "").ifEmpty { null }
       val data = root.getJSONObject("data")
 
       val foldersArray = data.optJSONArray("folders") ?: org.json.JSONArray()
@@ -115,7 +123,7 @@ internal object DocumentStore {
         )
       }
 
-      VaultDocumentsData(enabled, folders, files)
+      VaultDocumentsData(enabled, masterKeyBase64, folders, files)
     }.getOrNull()
   }
 }

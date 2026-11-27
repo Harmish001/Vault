@@ -1,5 +1,5 @@
 import type { Folder, VaultFile } from "./types";
-import { extOf, maskValue } from "./utils";
+import { extOf, guessMime, maskValue } from "./utils";
 
 /**
  * Formats a clean display name for the system file picker:
@@ -53,7 +53,7 @@ export function buildDocumentsProviderPayload(folders: Folder[], files: VaultFil
         folderId: f.folderId,
         name: f.name,
         displayName: pickerDisplayName(f),
-        mime: f.mime,
+        mime: guessMime(f.name, f.mime),
         size: f.size,
         storedAs: f.storedAs,
         addedAt: f.addedAt,

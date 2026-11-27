@@ -6,8 +6,14 @@ import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsProvider
+import android.util.Base64
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileNotFoundException
+import java.io.FileOutputStream
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class VaultDocumentsProvider : DocumentsProvider() {
   companion object {
@@ -15,6 +21,10 @@ class VaultDocumentsProvider : DocumentsProvider() {
     const val DOC_ID_ROOT = "root"
     private const val FOLDER_PREFIX = "folder:"
     private const val FILE_PREFIX = "file:"
+    private val FILE_MAGIC = byteArrayOf(0x44, 0x56, 0x46, 0x31) // "DVF1"
+    private const val FILE_HEADER_LEN = 16
+    private const val MIN_ENCRYPTED_LEN = 32
+    private val FILE_AAD = "docvault-file-v1".toByteArray(Charsets.UTF_8)
 
     private val DEFAULT_ROOT_PROJECTION = arrayOf(
       DocumentsContract.Root.COLUMN_ROOT_ID,
@@ -60,6 +70,7 @@ class VaultDocumentsProvider : DocumentsProvider() {
     val result = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
     val ctx = context ?: return result
     val data = DocumentStore.read(ctx) ?: return result
+    if (!data.enabled) return result
 
     if (documentId == DOC_ID_ROOT) {
       val row = result.newRow()
@@ -109,6 +120,7 @@ class VaultDocumentsProvider : DocumentsProvider() {
     val result = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
     val ctx = context ?: return result
     val data = DocumentStore.read(ctx) ?: return result
+    if (!data.enabled) return result
 
     if (parentDocumentId == DOC_ID_ROOT) {
       for (folder in data.folders.filter { it.parentId == null }) {
@@ -164,6 +176,7 @@ class VaultDocumentsProvider : DocumentsProvider() {
   ): ParcelFileDescriptor {
     val ctx = context ?: throw FileNotFoundException("No context available")
     val data = DocumentStore.read(ctx) ?: throw FileNotFoundException("DocVault is locked")
+    if (!data.enabled) throw FileNotFoundException("DocVault picker is disabled")
 
     if (!documentId.startsWith(FILE_PREFIX)) {
       throw FileNotFoundException("Unsupported document ID: $documentId")
@@ -177,7 +190,78 @@ class VaultDocumentsProvider : DocumentsProvider() {
       throw FileNotFoundException("File not found on storage: ${doc.name}")
     }
 
-    return ParcelFileDescriptor.open(physicalFile, ParcelFileDescriptor.MODE_READ_ONLY)
+    if (!isEncryptedVaultFile(physicalFile)) {
+      return ParcelFileDescriptor.open(physicalFile, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    val keyB64 = data.masterKeyBase64 ?: throw FileNotFoundException("DocVault key unavailable; open DocVault first")
+    val keyBytes = Base64.decode(keyB64, Base64.DEFAULT)
+    if (keyBytes.size != 32) {
+      throw FileNotFoundException("Invalid DocVault key")
+    }
+
+    val cacheDir = DocumentStore.cacheDir(ctx)
+    if (!cacheDir.exists()) cacheDir.mkdirs()
+
+    val dotIdx = doc.name.lastIndexOf('.')
+    val ext = if (dotIdx >= 0) doc.name.substring(dotIdx).replace(Regex("[^A-Za-z0-9.]"), "") else ""
+    val cachedFile = File(cacheDir, "${doc.id}$ext")
+    if (cachedFile.exists() && cachedFile.length() > 0L && cachedFile.lastModified() >= physicalFile.lastModified()) {
+      return ParcelFileDescriptor.open(cachedFile, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    val tmpFile = File(cacheDir, "${doc.id}$ext.tmp")
+    try {
+      FileInputStream(physicalFile).use { input ->
+        val header = ByteArray(FILE_HEADER_LEN)
+        var readHeader = 0
+        while (readHeader < FILE_HEADER_LEN) {
+          val n = input.read(header, readHeader, FILE_HEADER_LEN - readHeader)
+          if (n <= 0) throw FileNotFoundException("Truncated encrypted file")
+          readHeader += n
+        }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+          Cipher.DECRYPT_MODE,
+          SecretKeySpec(keyBytes, "AES"),
+          GCMParameterSpec(128, header, 4, 12)
+        )
+        cipher.updateAAD(FILE_AAD)
+
+        FileOutputStream(tmpFile).use { output ->
+          val buf = ByteArray(65536)
+          while (true) {
+            if (signal?.isCanceled == true) throw FileNotFoundException("Cancelled")
+            val n = input.read(buf)
+            if (n <= 0) break
+            val plain = cipher.update(buf, 0, n)
+            if (plain != null && plain.isNotEmpty()) output.write(plain)
+          }
+          val tail = cipher.doFinal()
+          if (tail != null && tail.isNotEmpty()) output.write(tail)
+        }
+      }
+      if (cachedFile.exists()) cachedFile.delete()
+      if (!tmpFile.renameTo(cachedFile)) {
+        throw FileNotFoundException("Could not prepare decrypted document")
+      }
+      return ParcelFileDescriptor.open(cachedFile, ParcelFileDescriptor.MODE_READ_ONLY)
+    } catch (e: FileNotFoundException) {
+      tmpFile.delete()
+      throw e
+    } catch (e: Exception) {
+      tmpFile.delete()
+      throw FileNotFoundException("Could not decrypt document: ${e.message}")
+    }
+  }
+
+  private fun isEncryptedVaultFile(file: File): Boolean {
+    if (file.length() < MIN_ENCRYPTED_LEN) return false
+    val magic = ByteArray(4)
+    FileInputStream(file).use { input ->
+      if (input.read(magic) != 4) return false
+    }
+    return magic.contentEquals(FILE_MAGIC)
   }
 
   override fun querySearchDocuments(
@@ -188,6 +272,7 @@ class VaultDocumentsProvider : DocumentsProvider() {
     val result = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
     val ctx = context ?: return result
     val data = DocumentStore.read(ctx) ?: return result
+    if (!data.enabled) return result
     val q = query.trim().lowercase()
     if (q.isEmpty()) return result
 

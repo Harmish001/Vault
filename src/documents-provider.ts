@@ -1,20 +1,23 @@
 import { requireOptionalNativeModule } from "expo";
 import type { Folder, VaultFile } from "./types";
-import { buildDocumentsProviderPayload, pickerDisplayName } from "./documents-provider-data";
+import { buildDocumentsProviderPayload } from "./documents-provider-data";
+import { getCachedKey } from "./security/keystore";
+import { bytesToBase64 } from "./scan/base64";
 
 export { buildDocumentsProviderPayload, pickerDisplayName } from "./documents-provider-data";
 
 const native = requireOptionalNativeModule<{
   isSupported(): boolean;
-  sync(json: string, enabled: boolean): void;
+  sync(json: string, enabled: boolean, masterKeyBase64?: string | null): void;
   clear(): void;
+  shareMultiple?(uris: string[], mimeType: string, dialogTitle: string): Promise<void>;
 }>("VaultDocuments");
 
 export const documentsProviderSupported = () => native?.isSupported() ?? false;
 
 /**
- * Synchronizes the vault folders and files with the native DocumentsProvider
- * so they appear directly in the Android system "Choose file" dialog.
+ * Synchronizes the vault folders, files, and master key (encrypted via AndroidKeyStore)
+ * with the native DocumentsProvider so they can be decrypted when picked from external apps.
  */
 export function syncDocumentsProvider(folders: Folder[], files: VaultFile[], enabled = true) {
   try {
@@ -24,7 +27,9 @@ export function syncDocumentsProvider(folders: Folder[], files: VaultFile[], ena
     }
 
     const payload = buildDocumentsProviderPayload(folders, files);
-    native?.sync(JSON.stringify(payload), enabled);
+    const key = getCachedKey();
+    const keyB64 = key ? bytesToBase64(key) : null;
+    native?.sync(JSON.stringify(payload), enabled, keyB64);
   } catch {
     // Keystore or native issues shouldn't break the app
   }
@@ -36,4 +41,14 @@ export function clearDocumentsProvider() {
   } catch {
     // already cleared
   }
+}
+
+export async function shareMultipleNative(
+  contentUris: string[],
+  mimeType: string,
+  dialogTitle: string
+): Promise<boolean> {
+  if (!native?.shareMultiple) return false;
+  await native.shareMultiple(contentUris, mimeType, dialogTitle);
+  return true;
 }
